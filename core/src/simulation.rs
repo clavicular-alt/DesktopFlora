@@ -40,14 +40,6 @@ const MAX_MOTES: usize = 1500;
 const GUST_SWEEP: f32 = 0.6;
 const GUST_LENGTH: f32 = 2.2;
 const GUST_WIND: f32 = 1000.0;
-/// A thrown snowball takes this long, in seconds, to reach where it was aimed, and bursts there.
-const THROW_TIME: f32 = 0.55;
-const SNOWBALL_AREA: f32 = 45.0;
-const MAX_SNOWMEN: usize = 4;
-/// Snow a snowman takes from the ground under it; with less there, none can be built.
-const SNOWMAN_SNOW: f32 = 900.0;
-/// A snowman melts away over this many seconds while Melt Snow is on.
-const SNOWMAN_MELT: f32 = 900.0;
 /// The snowfall is caught this long after the drifts, so it trails behind their powder.
 const GUST_LAG: f32 = 0.3;
 /// Snow a wall scrapes up packs down to this share of its fresh bulk.
@@ -96,10 +88,12 @@ pub enum Weather {
     Blossoms,
     /// Autumn leaves that tumble and pile up in warm colours.
     Leaves,
+    /// Tiny lights that drift down slowly and twinkle, without settling.
+    Stars,
 }
 
 impl Weather {
-    pub const ALL: [Weather; 4] = [Weather::Snow, Weather::Rain, Weather::Blossoms, Weather::Leaves];
+    pub const ALL: [Weather; 5] = [Weather::Snow, Weather::Rain, Weather::Blossoms, Weather::Leaves, Weather::Stars];
 
     pub fn title(self) -> &'static str {
         match self {
@@ -107,13 +101,14 @@ impl Weather {
             Weather::Rain => "Rain",
             Weather::Blossoms => "Blossoms",
             Weather::Leaves => "Leaves",
+            Weather::Stars => "Stars",
         }
     }
 
     /// The colour the drifts take on, and how much of it shows over snow white.
     pub fn pile_tint(self) -> [f32; 4] {
         match self {
-            Weather::Snow | Weather::Rain => [1.0, 1.0, 1.0, 0.0],
+            Weather::Snow | Weather::Rain | Weather::Stars => [1.0, 1.0, 1.0, 0.0],
             Weather::Blossoms => [1.0, 0.8, 0.88, 0.75],
             Weather::Leaves => [0.78, 0.45, 0.2, 0.9],
         }
@@ -143,25 +138,6 @@ impl Default for Look {
     fn default() -> Look {
         Look { weather: Weather::Snow, size: 1.0, wind: 1.0, mouse_wind: 1.0, color: None }
     }
-}
-
-/// A snowball in flight, bursting into powder where it was aimed.
-#[derive(Clone, Copy)]
-struct Snowball {
-    position: V2,
-    velocity: V2,
-    size: f32,
-    lump: f32,
-    bursts_at: f64,
-}
-
-/// A snowman standing on the ground drift, at `x`; `scale` shrinks as it melts.
-#[derive(Clone, Copy)]
-struct Snowman {
-    x: f32,
-    scale: f32,
-    /// Its own ragged outline, so no two look alike.
-    lump: f32,
 }
 
 /// How briskly the scene changes, which sets how often it is drawn.
@@ -242,6 +218,8 @@ struct Flake {
     lump: f32,
     /// Rain: bursts into a splash where it lands instead of settling.
     splashes: bool,
+    /// Stars: brighten and dim with their phase.
+    twinkles: bool,
     /// Scales the drift it leaves, so bigger or lighter things don't pile up faster than snow.
     weight: f32,
     /// The direction of the gust that caught the flake and carries it off the screen; zero until then.
@@ -318,7 +296,6 @@ struct Air {
     overflow: Vec<(f32, f32)>,
     gust: Option<Gust>,
     look: Look,
-    snowballs: Vec<Snowball>,
 }
 
 pub struct SnowSimulation {
@@ -348,8 +325,6 @@ pub struct SnowSimulation {
     strength_target: f32,
     next_shift: f64,
     air: Air,
-    snowmen: Vec<Snowman>,
-    last_dt: f32,
 }
 
 impl SnowSimulation {
@@ -393,10 +368,7 @@ impl SnowSimulation {
                 overflow: Vec::new(),
                 gust: None,
                 look: Look::default(),
-                snowballs: Vec::new(),
             },
-            snowmen: Vec::new(),
-            last_dt: 1.0 / 60.0,
         };
         simulation.update_target();
         simulation
@@ -464,86 +436,12 @@ impl SnowSimulation {
     }
 
     pub fn has_snow(&self) -> bool {
-        self.layers.iter().any(|layer| layer.top > 0.5) || !self.snowmen.is_empty()
+        self.layers.iter().any(|layer| layer.top > 0.5)
     }
 
     /// Everything moving through the air.
     pub fn sprite_count(&self) -> usize {
-        self.air.flakes.len() + self.air.grains.len() + self.air.motes.len() + self.air.snowballs.len()
-    }
-
-    /// Room the renderer needs for `write_sprites`: what is in the air and the snowmen standing still.
-    pub fn sprite_room(&self) -> usize {
-        self.sprite_count() + self.snowmen.len() * SNOWMAN_SPRITES
-    }
-
-    /// Throws a snowball from the ground drift at `target`, where it bursts. It takes some of the drift with it.
-    pub fn throw_snowball(&mut self, target: V2) {
-        let random = &mut self.air.random;
-        let side = if random.next() < 0.5 { -1.0 } else { 1.0 };
-        let from_x = (target.x + side * random.range(120.0, 320.0)).clamp(5.0, self.width - 5.0);
-        let ground = &mut self.layers[0];
-        let column = ground.clamped_index(from_x);
-        let mut taken = 0.0;
-        for i in column.saturating_sub(6)..(column + 7).min(ground.count()) {
-            let take = ground.heights[i].min(3.0);
-            ground.set(i, ground.heights[i] - take);
-            taken += take * COLUMN_WIDTH;
-        }
-        let start = V2::new(from_x, ground.surface(column) + 4.0);
-        // Aimed without drag, which the snowball doesn't feel: straight under gravity to the target.
-        let velocity = V2::new((target.x - start.x) / THROW_TIME, (target.y - start.y) / THROW_TIME + 0.5 * GRAVITY * THROW_TIME);
-        self.air.snowballs.push(Snowball {
-            position: start,
-            velocity,
-            size: 7.0 + (taken / SNOWBALL_AREA).min(1.0) * 2.0,
-            lump: random_lump(&mut self.air.random),
-            bursts_at: self.air.clock + THROW_TIME as f64,
-        });
-        self.air.heights_changed = true;
-    }
-
-    /// Builds a snowman on the ground drift at `x` from the snow there. Returns false when there isn't enough snow,
-    /// it would stand too close to another, or there are already as many as there can be.
-    pub fn build_snowman(&mut self, x: f32) -> bool {
-        if self.snowmen.len() >= MAX_SNOWMEN || self.snowmen.iter().any(|snowman| (snowman.x - x).abs() < 60.0) {
-            return false;
-        }
-        let ground = &mut self.layers[0];
-        let column = ground.clamped_index(x);
-        let range = column.saturating_sub(20)..(column + 21).min(ground.count());
-        let available: f32 = range.clone().map(|i| ground.heights[i] * COLUMN_WIDTH).sum();
-        if available < SNOWMAN_SNOW {
-            return false;
-        }
-        let share = SNOWMAN_SNOW / available;
-        for i in range {
-            ground.set(i, ground.heights[i] * (1.0 - share));
-        }
-        let x = ground.center_x(column);
-        // Close to a half, a lump's outline stands still instead of tumbling.
-        let lump = 0.5 + self.air.random.range(-0.003, 0.003);
-        self.snowmen.push(Snowman { x, scale: 1.0, lump });
-        self.air.heights_changed = true;
-        true
-    }
-
-    /// Knocks over every snowman: each falls apart into snow.
-    pub fn topple_snowmen(&mut self) {
-        for snowman in std::mem::take(&mut self.snowmen) {
-            self.topple(snowman);
-        }
-    }
-
-    fn topple(&mut self, snowman: Snowman) {
-        let ground = &self.layers[0];
-        let base = ground.surface(ground.clamped_index(snowman.x));
-        let push = self.air.cursor_velocity.x.clamp(-400.0, 400.0) * 0.4;
-        for (height, area) in [(14.0, 0.45), (36.0, 0.33), (54.0, 0.22)] {
-            let position = V2::new(snowman.x, base + height * snowman.scale);
-            self.air.release(SNOWMAN_SNOW * area * snowman.scale, position, V2::new(push, 60.0), V2::new(10.0 * snowman.scale, 8.0), 0.5);
-        }
-        self.air.heights_changed = true;
+        self.air.flakes.len() + self.air.grains.len() + self.air.motes.len()
     }
 
     /// Floats the renderer needs per frame: each layer's surface and bed.
@@ -564,7 +462,6 @@ impl SnowSimulation {
     /// Returns whether anything visible changed.
     pub fn step(&mut self, dt: f32, cursor: V2) -> bool {
         self.air.clock += dt as f64;
-        self.last_dt = dt;
         let was_moving = self.sprite_count() > 0;
         self.air.heights_changed = false;
 
@@ -579,8 +476,6 @@ impl SnowSimulation {
         }
         self.blow(dt);
         self.advance_flakes(dt);
-        self.advance_snowballs();
-        self.advance_snowmen(dt);
         self.advance_grains(dt);
         self.air.advance_motes(dt);
         self.settle(dt);
@@ -615,7 +510,7 @@ impl SnowSimulation {
             position: flake.position,
             velocity: flake.velocity,
             size: flake.size,
-            alpha: flake.alpha,
+            alpha: if flake.twinkles { flake.alpha * (0.55 + 0.45 * (flake.phase * 3.0).sin()) } else { flake.alpha },
             soft: flake.soft,
             tint_amount: flake.tint_amount.max(flake.hue_amount),
             tint: if flake.tint_amount >= flake.hue_amount { flake.tint } else { flake.hue },
@@ -642,23 +537,8 @@ impl SnowSimulation {
             let fade = (mote.age / 0.06).min(1.0) * (1.0 - t).powf(1.5);
             Sprite { position: mote.position, size: mote.size * (1.0 + t), alpha: mote.alpha * fade, soft: 1.0, tint: [1.0; 3], ..Sprite::default() }
         });
-        let snowballs = self.air.snowballs.iter().map(|ball| Sprite {
-            position: ball.position,
-            velocity: ball.velocity,
-            size: ball.size,
-            alpha: 0.98,
-            soft: 0.2,
-            tint: [1.0; 3],
-            lump: ball.lump,
-            ..Sprite::default()
-        });
-        let ground = &self.layers[0];
-        let snowmen = self.snowmen.iter().flat_map(|snowman| {
-            let base = ground.surface(ground.clamped_index(snowman.x)) - 2.0;
-            snowman_sprites(snowman, base)
-        });
         let mut count = 0;
-        for (slot, sprite) in buffer.iter_mut().zip(flakes.chain(grains).chain(motes).chain(snowballs).chain(snowmen)) {
+        for (slot, sprite) in buffer.iter_mut().zip(flakes.chain(grains).chain(motes)) {
             *slot = sprite;
             count += 1;
         }
@@ -712,6 +592,7 @@ impl SnowSimulation {
                 hue_amount: 0.0,
                 lump: 0.0,
                 splashes: false,
+                twinkles: false,
                 weight: 1.0,
                 blown: 0.0,
             });
@@ -1029,55 +910,6 @@ impl SnowSimulation {
         }
     }
 
-    fn advance_snowballs(&mut self) {
-        let mut i = self.air.snowballs.len();
-        while i > 0 {
-            i -= 1;
-            let ball = self.air.snowballs[i];
-            if self.air.clock >= ball.bursts_at || ball.position.x < -20.0 || ball.position.x > self.width + 20.0 {
-                self.air.snowballs.swap_remove(i);
-                self.air.splat(&ball);
-            }
-        }
-        let dt = self.last_dt;
-        for ball in &mut self.air.snowballs {
-            ball.velocity.y -= GRAVITY * dt;
-            ball.position += ball.velocity * dt;
-        }
-    }
-
-    /// Snowmen melt with the drifts, and fall apart when the cursor rams into one.
-    fn advance_snowmen(&mut self, dt: f32) {
-        if self.snowmen.is_empty() {
-            return;
-        }
-        let melting = self.thaws || !self.accumulates;
-        let cursor = self.air.cursor;
-        let fast = self.air.cursor_velocity.length() > 700.0;
-        let mut i = self.snowmen.len();
-        while i > 0 {
-            i -= 1;
-            let mut snowman = self.snowmen[i];
-            if melting {
-                snowman.scale -= dt / SNOWMAN_MELT;
-                self.air.heights_changed = true;
-            }
-            let ground = &self.layers[0];
-            let base = ground.surface(ground.clamped_index(snowman.x));
-            let hit = fast
-                && cursor.is_some_and(|c| (c.x - snowman.x).abs() < 14.0 * snowman.scale && c.y > base && c.y < base + 62.0 * snowman.scale);
-            if hit {
-                self.snowmen.swap_remove(i);
-                self.topple(snowman);
-            } else if snowman.scale < 0.35 {
-                self.snowmen.swap_remove(i);
-                self.air.heights_changed = true;
-            } else {
-                self.snowmen[i] = snowman;
-            }
-        }
-    }
-
     /// Wanders between light lulls, steady snow and heavy flurries.
     fn vary(&mut self, dt: f32) {
         // In case none of the scattered snow makes it to the bottom, say because it all came to rest on windows.
@@ -1119,11 +951,6 @@ impl SnowSimulation {
     pub fn blow_away(&mut self, direction: f32, calm: bool) {
         let direction = if direction < 0.0 { -1.0 } else { 1.0 };
         self.air.gust = Some(Gust { start: self.air.clock, direction, calm });
-        if calm {
-            self.snowmen.clear();
-        } else {
-            self.topple_snowmen();
-        }
         // Snow kept for windows on other desktops goes too, out of sight.
         self.dormant.clear();
         for (_, ledge, _) in &mut self.parking {
@@ -1560,25 +1387,6 @@ impl Air {
         }
     }
 
-    /// A snowball reaching its target: a puff of powder and loose snow that falls and settles below.
-    fn splat(&mut self, ball: &Snowball) {
-        self.release(SNOWBALL_AREA, ball.position, ball.velocity * 0.15 + V2::new(0.0, 40.0), V2::new(ball.size * 0.6, ball.size * 0.4), 0.9);
-        let count = MAX_MOTES.saturating_sub(self.motes.len()).min(14);
-        for _ in 0..count {
-            let random = &mut self.random;
-            let angle = random.range(0.0, TAU);
-            let speed = random.range(40.0, 180.0);
-            self.motes.push(Mote {
-                position: ball.position + V2::new(random.range(-0.4, 0.4), random.range(-0.4, 0.4)) * ball.size,
-                velocity: V2::new(angle.cos(), angle.sin()) * speed + ball.velocity * 0.1,
-                size: random.range(0.4, 0.8) * ball.size + 1.0,
-                alpha: random.range(0.15, 0.3),
-                age: 0.0,
-                life: random.range(0.4, 0.8),
-            });
-        }
-    }
-
     /// `scatter` varies each clump's speed by that fraction, so a thrown sheet of snow breaks up instead of flying as one band.
     fn release(&mut self, area: f32, position: V2, velocity: V2, spread: V2, scatter: f32) {
         if area <= 0.02 {
@@ -1761,6 +1569,7 @@ impl Air {
             hue_amount: 0.0,
             lump: 0.0,
             splashes: false,
+            twinkles: false,
             weight: 1.0,
             blown: 0.0,
         };
@@ -1799,6 +1608,17 @@ impl Air {
                 flake.hue_amount = 1.0;
                 flake.lump = random.range(0.05, 1.0);
                 flake.weight = 0.3;
+            }
+            Weather::Stars => {
+                flake.fall_speed = if near { random.range(14.0, 20.0) } else { 4.0 + depth * 10.0 + random.range(0.0, 3.0) };
+                flake.size = if near { random.range(3.0, 4.0) } else { 1.0 + depth * 1.6 };
+                flake.alpha = if near { 0.7 } else { 0.5 + depth * 0.45 };
+                flake.soft = 0.35;
+                flake.sway_amount *= 0.2;
+                flake.settles = false;
+                flake.twinkles = true;
+                flake.hue = if random.next() < 0.7 { [1.0, 0.95, 0.78] } else { [0.8, 0.88, 1.0] };
+                flake.hue_amount = 0.6;
             }
         }
         if let Some(color) = look.color {
@@ -1880,64 +1700,6 @@ fn restore(ledge: &mut SnowLayer, left: f32, top: f32, columns: usize) {
 }
 
 /// The highest visible snow surface crossed while falling from `from` to `to` at `x`, allowing for the surface moving meanwhile.
-/// Sprites a snowman is drawn with: three balls of snow, coal eyes and buttons, a carrot nose and twig arms.
-const SNOWMAN_SPRITES: usize = 10;
-
-fn snowman_sprites(snowman: &Snowman, base: f32) -> [Sprite; SNOWMAN_SPRITES] {
-    let s = snowman.scale;
-    let x = snowman.x;
-    let bottom = base + 13.0 * s;
-    let middle = bottom + 19.0 * s;
-    let head = middle + 14.0 * s;
-    let snow = |y: f32, size: f32| Sprite {
-        position: V2::new(x, y),
-        size: size * s,
-        alpha: 1.0,
-        soft: 0.15,
-        tint: [1.0; 3],
-        lump: snowman.lump,
-        ..Sprite::default()
-    };
-    let dot = |dx: f32, y: f32, size: f32, tint: [f32; 3]| Sprite {
-        position: V2::new(x + dx * s, y),
-        size: size * s,
-        alpha: 1.0,
-        soft: 0.2,
-        tint_amount: 1.0,
-        tint,
-        ..Sprite::default()
-    };
-    // A sprite's velocity smears it into a streak, which draws a twig.
-    let arm = |side: f32| Sprite {
-        position: V2::new(x + side * 13.0 * s, middle + 3.0 * s),
-        velocity: V2::new(side * 2000.0, 1200.0),
-        size: 1.6 * s,
-        alpha: 1.0,
-        soft: 0.2,
-        tint_amount: 1.0,
-        tint: [0.35, 0.23, 0.13],
-        ..Sprite::default()
-    };
-    let coal = [0.08, 0.08, 0.1];
-    [
-        snow(bottom, 28.0),
-        snow(middle, 20.0),
-        snow(head, 14.0),
-        dot(-2.5, head + 1.5 * s, 2.2, coal),
-        dot(2.5, head + 1.5 * s, 2.2, coal),
-        dot(3.2, head - 0.8 * s, 3.0, [0.95, 0.5, 0.12]),
-        dot(0.0, middle + 3.5 * s, 2.4, coal),
-        dot(0.0, middle - 3.0 * s, 2.4, coal),
-        arm(-1.0),
-        arm(1.0),
-    ]
-}
-
-/// A lump's outline and tumble.
-fn random_lump(random: &mut Random) -> f32 {
-    random.range(0.05, 1.0)
-}
-
 fn landing(layers: &[SnowLayer], x: f32, from: f32, to: f32) -> Option<(usize, usize)> {
     let mut hit = None;
     let mut highest = -f32::MAX;

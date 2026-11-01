@@ -18,7 +18,7 @@ pub const SIZES: [(&str, f32); 3] = [("Small", 0.7), ("Normal", 1.0), ("Large", 
 pub const WINDS: [(&str, f32); 3] = [("Still", 0.25), ("Breezy", 1.0), ("Stormy", 3.0)];
 pub const OPACITIES: [(&str, f32); 4] = [("100%", 1.0), ("75%", 0.75), ("50%", 0.5), ("25%", 0.25)];
 /// Zero lets the display's own rate through.
-pub const FRAME_CAPS: [(&str, u32); 4] = [("Automatic", 0), ("60 fps", 60), ("30 fps", 30), ("Eco (20 fps)", 20)];
+pub const FRAME_CAPS: [(&str, u32); 4] = [("Auto", 0), ("60 fps", 60), ("30 fps", 30), ("Eco", 20)];
 pub const MOUSE_WINDS: [(&str, f32); 3] = [("Off", 0.0), ("Gentle", 1.0), ("Strong", 2.5)];
 pub const GLITTERS: [(&str, f32); 3] = [("Off", 0.0), ("Normal", 1.0), ("Sparkly", 3.0)];
 pub const COLORS: [(&str, Option<[f32; 3]>); 6] = [
@@ -30,10 +30,28 @@ pub const COLORS: [(&str, Option<[f32; 3]>); 6] = [
     ("Lavender", Some([0.8, 0.7, 1.0])),
 ];
 /// When the snow shows: hours from and to, local time; the same hour twice means always.
-pub const SCHEDULES: [(&str, u32, u32); 4] = [("Always", 0, 0), ("Evenings (17–23)", 17, 23), ("Daytime (8–17)", 8, 17), ("Nights (20–6)", 20, 6)];
+pub const SCHEDULES: [(&str, u32, u32); 4] = [("Always", 0, 0), ("Evenings", 17, 23), ("Daytime", 8, 17), ("Nights", 20, 6)];
+
+/// A keyboard shortcut: `MOD_*` flags as `RegisterHotKey` takes them, and a virtual-key code.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Hotkey {
+    pub modifiers: u32,
+    pub key: u32,
+}
+
+const CTRL_ALT: u32 = 0x0002 | 0x0001;
+/// What each shortcut does, where it is kept, and what it is until someone changes it.
+pub const SHORTCUTS: [(&str, PCWSTR, Hotkey); 3] = [
+    ("Snow on/off", w!("hotkeyToggle"), Hotkey { modifiers: CTRL_ALT, key: b'S' as u32 }),
+    ("Clear snow", w!("hotkeyClear"), Hotkey { modifiers: CTRL_ALT, key: b'C' as u32 }),
+    ("Next weather", w!("hotkeyWeather"), Hotkey { modifiers: CTRL_ALT, key: b'W' as u32 }),
+];
 
 #[derive(Clone, Copy)]
 pub struct Settings {
+    /// Switched off: nothing falls and nothing shows, whatever else is chosen.
+    pub paused: bool,
+    /// How much falls while on; never `Off`, which is what `paused` is for.
     pub snowfall: Snowfall,
     pub weather: Weather,
     pub size: usize,
@@ -50,7 +68,8 @@ pub struct Settings {
     pub glitter: usize,
     pub color: usize,
     pub schedule: usize,
-    pub shortcuts: bool,
+    /// One per entry of `SHORTCUTS`; `None` when someone removed it.
+    pub hotkeys: [Option<Hotkey>; 3],
     pub accumulate: bool,
     pub melt: bool,
     pub snow_on_windows: bool,
@@ -64,7 +83,11 @@ impl Settings {
         let calm = !animations_enabled();
         let snowfall = read(w!("snowfall")).and_then(|i| Snowfall::ALL.get(i as usize).copied());
         let index = |name: PCWSTR, default: usize, count: usize| read(name).map_or(default, |i| i as usize).min(count - 1);
+        // Off used to be one of the amounts; it is the switch now.
+        let paused = read(w!("paused")).is_some_and(|v| v != 0) || snowfall == Some(Snowfall::Off);
+        let snowfall = snowfall.filter(|&s| s != Snowfall::Off);
         Settings {
+            paused,
             snowfall: snowfall.unwrap_or(if calm { Snowfall::Light } else { Snowfall::Steady }),
             weather: read(w!("weather")).and_then(|i| Weather::ALL.get(i as usize).copied()).unwrap_or(Weather::Snow),
             size: index(w!("flakeSize"), 1, SIZES.len()),
@@ -78,7 +101,11 @@ impl Settings {
             glitter: index(w!("glitter"), 1, GLITTERS.len()),
             color: index(w!("color"), 0, COLORS.len()),
             schedule: index(w!("schedule"), 0, SCHEDULES.len()),
-            shortcuts: read(w!("shortcuts")).is_none_or(|v| v != 0),
+            hotkeys: SHORTCUTS.map(|(_, name, default)| match read(name) {
+                None => Some(default),
+                Some(0) => None,
+                Some(packed) => Some(Hotkey { modifiers: packed >> 16, key: packed & 0xffff }),
+            }),
             accumulate: read(w!("accumulate")).is_none_or(|v| v != 0),
             melt: read(w!("meltSnow")).is_none_or(|v| v != 0),
             snow_on_windows: read(w!("snowOnWindows")).is_none_or(|v| v != 0),
@@ -91,6 +118,7 @@ impl Settings {
     pub fn save(&self) {
         let snowfall = Snowfall::ALL.iter().position(|&s| s == self.snowfall).unwrap_or(2);
         write(w!("snowfall"), snowfall as u32);
+        write(w!("paused"), self.paused as u32);
         write(w!("weather"), Weather::ALL.iter().position(|&w| w == self.weather).unwrap_or(0) as u32);
         write(w!("flakeSize"), self.size as u32);
         write(w!("wind"), self.wind as u32);
@@ -103,7 +131,9 @@ impl Settings {
         write(w!("glitter"), self.glitter as u32);
         write(w!("color"), self.color as u32);
         write(w!("schedule"), self.schedule as u32);
-        write(w!("shortcuts"), self.shortcuts as u32);
+        for ((_, name, _), hotkey) in SHORTCUTS.iter().zip(self.hotkeys) {
+            write(*name, hotkey.map_or(0, |hotkey| hotkey.modifiers << 16 | hotkey.key));
+        }
         write(w!("accumulate"), self.accumulate as u32);
         write(w!("meltSnow"), self.melt as u32);
         write(w!("snowOnWindows"), self.snow_on_windows as u32);

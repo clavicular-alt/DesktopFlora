@@ -1,6 +1,6 @@
 # winget
 
-Templates for submitting DesktopFlora to [winget-pkgs](https://github.com/microsoft/winget-pkgs).
-For each release, replace `VERSION` and `SHA256` (from the release's `SHA256SUMS.txt`, in upper case),
-then open a pull request at microsoft/winget-pkgs under `manifests/c/clavicular-alt/DesktopFlora/VERSION/`,
-or let `wingetcreate update clavicular-alt.DesktopFlora --version VERSION --urls <installer url> --submit` do it.
+The build fills these templates with each release's version and installer checksum (`VERSION`, `SHA256`) and keeps the
+result with the build's files. With a repository secret `WINGET_TOKEN` (a GitHub token with the `public_repo` scope),
+it also submits them to [winget-pkgs](https://github.com/microsoft/winget-pkgs), where Microsoft reviews them; once
+accepted, `winget install clavicular-alt.DesktopFlora` installs DesktopFlora.

@@ -238,7 +238,7 @@ impl Surface {
     }
 
     pub fn draw(&mut self, gpu: &Gpu, simulation: &SnowSimulation, ambient: Ambient, time: f32) -> Result<()> {
-        self.reserve(gpu, simulation.sprite_room(), simulation.column_count())?;
+        self.reserve(gpu, simulation.sprite_count(), simulation.column_count())?;
         let (Some(sprite_buffer), Some((height_buffer, height_view))) = (&self.sprites, &self.heights) else {
             return Ok(());
         };

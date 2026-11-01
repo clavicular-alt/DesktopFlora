@@ -18,6 +18,8 @@ jobs:
       # Optional code signing: add SIGN_CERT_BASE64 (a .pfx, base64) and SIGN_PASSWORD as repository secrets.
       SIGN_CERT_BASE64: ${{ secrets.SIGN_CERT_BASE64 }}
       SIGN_PASSWORD: ${{ secrets.SIGN_PASSWORD }}
+      # Optional: a GitHub token with public_repo scope as the secret WINGET_TOKEN submits each release to winget.
+      WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
@@ -65,17 +67,29 @@ jobs:
           "$hash *DesktopFlora-Setup.exe" | Out-File -Encoding ascii dist\SHA256SUMS.txt
           Get-Content dist\SHA256SUMS.txt
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: DesktopFlora-Setup
-          path: dist/
-
       - name: Read the version
         shell: pwsh
         run: |
           $version = (Select-String -Path windows\Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
           "VERSION=$version" >> $env:GITHUB_ENV
 
+      - name: winget manifests
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash dist\DesktopFlora-Setup.exe -Algorithm SHA256).Hash.ToUpper()
+          $out = "winget\manifests\c\clavicular-alt\DesktopFlora\$env:VERSION"
+          New-Item -ItemType Directory -Force $out | Out-Null
+          Get-ChildItem packaging\winget\*.yaml | ForEach-Object {
+            (Get-Content $_ -Raw).Replace('VERSION', $env:VERSION).Replace('SHA256', $hash) | Set-Content -Encoding utf8NoBOM (Join-Path $out $_.Name)
+          }
+          "WINGET_MANIFESTS=$out" >> $env:GITHUB_ENV
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DesktopFlora-Setup
+          path: |
+            dist/
+            winget/
       - name: Publish the release
         uses: softprops/action-gh-release@v2
         with:
@@ -89,3 +103,10 @@ jobs:
             dist/DesktopFlora-Setup.exe
             dist/SHA256SUMS.txt
           make_latest: true
+
+      - name: Submit to winget
+        if: env.WINGET_TOKEN != ''
+        shell: pwsh
+        run: |
+          Invoke-WebRequest https://aka.ms/wingetcreate/latest -OutFile wingetcreate.exe
+          .\wingetcreate.exe submit --token $env:WINGET_TOKEN $env:WINGET_MANIFESTS

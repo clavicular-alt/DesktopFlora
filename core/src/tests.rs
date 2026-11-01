@@ -381,8 +381,8 @@ fn every_weather_falls_and_stays_finite() {
         assert!(simulation.sprite_count() > 0, "{weather:?} has nothing in the air");
         assert_finite(&simulation);
         let settled: f32 = piles(&simulation).iter().map(|(_, area)| area).sum();
-        if weather == Weather::Rain {
-            assert_eq!(settled, 0.0, "rain must not pile up");
+        if weather == Weather::Rain || weather == Weather::Stars {
+            assert_eq!(settled, 0.0, "{weather:?} must not pile up");
         } else {
             assert!(settled > 0.0, "{weather:?} doesn't settle");
         }
@@ -402,47 +402,12 @@ fn changing_weather_replaces_the_flakes() {
 }
 
 #[test]
-fn snowballs_fly_and_burst_into_snow() {
-    let mut simulation = SnowSimulation::new(800.0, 600.0, Snowfall::Off);
-    simulation.throw_snowball(V2::new(400.0, 400.0));
-    assert_eq!(simulation.sprite_count(), 1);
-    run(&mut simulation, 0.3, AWAY);
-    assert!(simulation.sprite_count() >= 1);
-    run(&mut simulation, 6.0, AWAY);
-    assert_finite(&simulation);
-    assert_eq!(simulation.sprite_count(), 0, "the burst snow settles");
-    let settled: f32 = piles(&simulation).iter().map(|(_, area)| area).sum();
-    assert!(settled > 0.0);
-}
-
-#[test]
-fn snowmen_need_snow_and_melt_away() {
-    let mut simulation = SnowSimulation::new(800.0, 600.0, Snowfall::Heavy);
-    assert!(!simulation.build_snowman(400.0), "no snow yet");
-    simulation.accumulates = true;
-    simulation.thaws = false;
-    run(&mut simulation, 240.0, AWAY);
-    assert!(simulation.build_snowman(400.0), "enough snow after a heavy snowfall");
-    assert!(!simulation.build_snowman(420.0), "too close to the first");
-    assert!(simulation.sprite_room() >= simulation.sprite_count() + 10);
-    let mut sprites = vec![Sprite::default(); simulation.sprite_room()];
-    let count = simulation.write_sprites(&mut sprites);
-    assert!(sprites[..count].iter().any(|sprite| sprite.size > 20.0));
-    simulation.set_snowfall(Snowfall::Off);
-    simulation.thaws = true;
-    run(&mut simulation, 900.0, AWAY);
-    let mut sprites = vec![Sprite::default(); simulation.sprite_room()];
-    let count = simulation.write_sprites(&mut sprites);
-    assert!(!sprites[..count].iter().any(|sprite| sprite.size > 20.0), "melted");
-}
-
-#[test]
 fn rain_splashes_without_settling() {
     use crate::simulation::{Look, Weather};
     let mut simulation = SnowSimulation::new(800.0, 600.0, Snowfall::Heavy);
     simulation.set_look(Look { weather: Weather::Rain, ..Look::default() });
     run(&mut simulation, 5.0, AWAY);
-    let mut sprites = vec![Sprite::default(); simulation.sprite_room()];
+    let mut sprites = vec![Sprite::default(); simulation.sprite_count()];
     let count = simulation.write_sprites(&mut sprites);
     // Splash droplets are soft motes near the ground.
     assert!(sprites[..count].iter().any(|sprite| sprite.soft == 1.0 && sprite.position.y < 60.0));

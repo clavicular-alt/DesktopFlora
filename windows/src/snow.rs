@@ -5,7 +5,8 @@ use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx};
 use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
 use windows::Win32::System::ProcessStatus::EmptyWorkingSet;
 use windows::Win32::System::Threading::{
-    GetCurrentProcess,
+    GetCurrentProcess, IDLE_PRIORITY_CLASS, NORMAL_PRIORITY_CLASS, PROCESS_POWER_THROTTLING_CURRENT_VERSION, PROCESS_POWER_THROTTLING_EXECUTION_SPEED,
+    PROCESS_POWER_THROTTLING_STATE, ProcessPowerThrottling, SetPriorityClass, SetProcessInformation,
     CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, CreateWaitableTimerExW, CreateWaitableTimerW, INFINITE, SetWaitableTimer, TIMER_ALL_ACCESS,
     WaitForMultipleObjects,
 };
@@ -64,14 +65,8 @@ pub enum Command {
     Glitter(f32),
     /// Off outside the schedule: the snow is hidden and stops.
     Scheduled(bool),
-    /// At this point on the screen, in physical pixels.
-    Snowball(i32, i32),
-    Snowman(i32, i32),
     Quit,
 }
-
-/// Posted to the controller window when a snowman couldn't be built for lack of snow.
-pub const WM_NO_SNOWMAN: u32 = windows::Win32::UI::WindowsAndMessaging::WM_APP + 5;
 
 /// Opacity the snow fades to while someone types.
 const TYPING_OPACITY: f32 = 0.3;
@@ -79,9 +74,16 @@ const TYPING_OPACITY: f32 = 0.3;
 const TYPING_HOLD: f64 = 1.5;
 
 /// Tells typing from mouse use without watching the keyboard: input arrived but the pointer stayed where it was.
+/// Clicks come one or two at a time; typing keeps coming. This many inputs within `BURST` with the pointer still are typing.
+const KEYSTROKES: u32 = 5;
+const BURST: f64 = 1.5;
+
 struct Typing {
     input_at: u32,
     cursor: POINT,
+    /// Inputs since the pointer last moved, counted from `burst_at`.
+    inputs: u32,
+    burst_at: i64,
     typed_at: Option<i64>,
     /// 1 when shown fully, down to `TYPING_OPACITY` while typing.
     fade: f32,
@@ -89,7 +91,7 @@ struct Typing {
 
 impl Typing {
     fn new() -> Typing {
-        Typing { input_at: 0, cursor: POINT::default(), typed_at: None, fade: 1.0 }
+        Typing { input_at: 0, cursor: POINT::default(), inputs: 0, burst_at: 0, typed_at: None, fade: 1.0 }
     }
 
     /// Updates the fade; returns whether it is still changing.
@@ -100,16 +102,21 @@ impl Typing {
             let _ = GetLastInputInfo(&mut info);
             let _ = GetCursorPos(&mut cursor);
         }
+        // Without watching the keyboard or the mouse: a run of input while the pointer stays put is typing.
         if info.dwTime != self.input_at {
-            // Input with the pointer still and no word from the mouse, as a click or the wheel would send, was the keyboard.
-            let mouse = info.dwTime.wrapping_sub(crate::app::MOUSE_INPUT_AT.load(std::sync::atomic::Ordering::Relaxed)) < 100;
-            if self.input_at != 0 && cursor == self.cursor && !mouse {
+            if clock.seconds(now - self.burst_at) > BURST {
+                self.inputs = 0;
+                self.burst_at = now;
+            }
+            self.inputs += 1;
+            if self.input_at != 0 && cursor == self.cursor && self.inputs >= KEYSTROKES {
                 self.typed_at = Some(now);
             }
             self.input_at = info.dwTime;
         }
         if cursor != self.cursor {
             self.typed_at = None;
+            self.inputs = 0;
             self.cursor = cursor;
         }
         let typing = self.typed_at.is_some_and(|at| clock.seconds(now - at) < TYPING_HOLD);
@@ -150,6 +157,7 @@ fn run_loop(commands: &Receiver<Command>, links: &Links, mut settings: Settings)
     let mut glitter = settings.glitter();
     let mut scheduled = true;
     let mut trimmed_at = Clock::now();
+    let mut efficient = false;
     let mut typing_checked = Clock::now();
     let mut screens = sync_screens(&gpu, &settings, look, Vec::new(), layer, false);
     let timer = unsafe {
@@ -246,25 +254,6 @@ fn run_loop(commands: &Receiver<Command>, links: &Links, mut settings: Settings)
                     log!("scheduled: {on}");
                     if on {
                         screens.iter_mut().for_each(Screen::resume);
-                    }
-                }
-                Command::Snowball(x, y) => {
-                    if let Some(screen) = screens.iter_mut().find(|screen| screen.contains(x as f32, y as f32)) {
-                        let target = screen.local(x as f32, y as f32);
-                        screen.simulation.throw_snowball(target);
-                        screen.wake(Clock::now());
-                    }
-                }
-                Command::Snowman(x, y) => {
-                    let built = screens.iter_mut().find(|screen| screen.contains(x as f32, y as f32)).is_some_and(|screen| {
-                        let at = screen.local(x as f32, y as f32);
-                        screen.wake(Clock::now());
-                        screen.simulation.build_snowman(at.x)
-                    });
-                    if !built {
-                        unsafe {
-                            let _ = PostMessageW(Some(HWND(links.controller as _)), WM_NO_SNOWMAN, WPARAM(0), LPARAM(0));
-                        }
                     }
                 }
                 Command::ClearSnow(calm) => {
@@ -367,8 +356,12 @@ fn run_loop(commands: &Receiver<Command>, links: &Links, mut settings: Settings)
             frame_cap,
         };
         // While nothing is drawn, as over a full-screen game, outside the schedule or with the screen locked, memory
-        // goes back to Windows. While snowing it would only be paged back in at once, which costs more than it saves.
+        // goes back to Windows and the process runs in efficiency mode. While snowing, both would only make it stutter.
         let hidden = !active || screens.iter().all(Screen::covered);
+        if hidden != efficient {
+            efficient = hidden;
+            set_efficiency(hidden);
+        }
         if hidden && clock.seconds(now - trimmed_at) > 60.0 {
             trimmed_at = now;
             unsafe {
@@ -501,6 +494,25 @@ fn new_simulation(monitor: &Monitor, settings: &Settings, look: Look) -> SnowSim
     simulation.accumulates = settings.accumulate;
     simulation.set_snowfall_held(!settings.welcomed);
     simulation
+}
+
+/// Windows 11's efficiency mode: low priority on efficient cores, for while nothing is drawn.
+fn set_efficiency(on: bool) {
+    let throttling = PROCESS_POWER_THROTTLING_STATE {
+        Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+        ControlMask: PROCESS_POWER_THROTTLING_EXECUTION_SPEED,
+        StateMask: if on { PROCESS_POWER_THROTTLING_EXECUTION_SPEED } else { 0 },
+    };
+    unsafe {
+        let process = GetCurrentProcess();
+        let _ = SetPriorityClass(process, if on { IDLE_PRIORITY_CLASS } else { NORMAL_PRIORITY_CLASS });
+        let _ = SetProcessInformation(
+            process,
+            ProcessPowerThrottling,
+            (&raw const throttling).cast(),
+            size_of::<PROCESS_POWER_THROTTLING_STATE>() as u32,
+        );
+    }
 }
 
 fn power_budget() -> PowerBudget {

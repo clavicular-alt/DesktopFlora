@@ -8,27 +8,25 @@ Basiert auf [Snowhush](https://github.com/mbezruchko/Snowhush) von Mykhailo Bezr
 
 ## Neu gegenüber dem Original
 
-| Funktion | Wo im Tray-Menü |
+| Funktion | Wo |
 |---|---|
-| **Wetterarten:** Schnee, Regen (Streifen, bleibt nicht liegen), Kirschblüten, Herbstlaub (taumelt, bunte Haufen) | Weather |
-| **Echtes Wetter:** fällt nur, was draußen gerade fällt, inkl. Stärke und Wind (Open-Meteo, Standort von Windows, auf ~1 km gerundet, alle 30 min) | Weather → Match Local Weather |
-| **Flockengröße, Wind, Deckkraft** | Look |
-| **Bildrate begrenzen** (Automatisch / 60 / 30 fps) für weniger CPU | Look → Frame Rate |
-| **Beim Tippen ausblenden:** Schnee wird blass, solange getippt wird (ohne Tastatur-Hook: erkennt Eingaben bei ruhender Maus) | Look → Fade While Typing |
-| **Schneefreie Programme:** kein Schnee auf deren Fenstern; maximiert und im Vordergrund verschwindet der Schnee auf dem Bildschirm ganz | Snow-Free Programs |
-| **Updates in der App:** lädt das neue Setup, prüft den SHA-256 gegen den Release (GitHub-Digest oder `SHA256SUMS.txt`), installiert still und startet neu. Ohne passende Prüfsumme wird nichts ausgeführt | Check for Updates… |
-| **Schneebälle:** fliegen aus dem Schneehaufen zum Mauszeiger und zerplatzen | Strg+Alt+B, Spaß → Schneeball werfen |
-| **Schneemänner:** aus dem Schnee am Boden gebaut (bis zu 4), schmelzen mit, fallen um, wenn man mit der Maus hineinfährt | Strg+Alt+N, Spaß → Schneemann bauen |
+| **Eigenes Einstellungsfenster:** Links- oder Rechtsklick aufs Symbol öffnet ein schlichtes Fenster mit vier Reitern (Wetter, Aussehen, Verhalten, Mehr), hell oder dunkel wie Windows | Symbol im Infobereich |
+| **An / Aus:** Schalter oben im Fenster, Doppelklick aufs Symbol oder Tastenkürzel | – |
+| **Wetterarten:** Schnee, Regen (spritzt auf), Blüten, Laub (taumelt, bunte Haufen), Sterne (funkeln) | Wetter |
+| **Jahreszeit:** Winter Schnee, Frühling Blüten, Sommer Sterne, Herbst Laub, passend zum Land aus den Windows-Regionseinstellungen (Südhalbkugel umgekehrt) | Wetter → Jahreszeit |
+| **Echtes Wetter vor Ort:** Regen oder Schnee wie draußen, inkl. Stärke und Wind; bei trockenem Wetter die Jahreszeit am Standort (Open-Meteo, Standort auf ~1 km gerundet, alle 30 min) | Wetter → Echtes Wetter vor Ort |
+| **Tastenkürzel frei wählbar:** An/Aus, Wegfegen, Nächstes Wetter; belegte Kürzel werden angezeigt | Mehr → Tastenkürzel |
+| **Ruhig im Hintergrund:** normale Priorität beim Zeichnen (kein Ruckeln), Effizienzmodus und Speicherfreigabe nur, wenn nichts zu sehen ist; 60 fps Obergrenze bei Interaktion, 4 fps ohne Schnee, Sparmodus 20 fps | Verhalten → Bildrate |
+| **Flockengröße, Wind, Deckkraft** | Aussehen |
+| **Beim Tippen ausblenden:** Schnee wird blass, solange getippt wird (ohne Tastatur- oder Maus-Hook: erkennt eine Reihe von Eingaben bei ruhender Maus) | Verhalten |
+| **Schneefreie Programme:** kein Schnee auf deren Fenstern; maximiert und im Vordergrund verschwindet der Schnee auf dem Bildschirm ganz | Mehr |
+| **Updates in der App:** lädt das neue Setup, prüft den SHA-256 gegen den Release (GitHub-Digest oder `SHA256SUMS.txt`), installiert still und startet neu. Ohne passende Prüfsumme wird nichts ausgeführt | Mehr → Nach Updates suchen |
 | **Wind von der Maus:** schnelle Bewegungen wirbeln die Flocken auf (Aus / Sanft / Stark) | Aussehen → Wind von der Maus |
-| **Regentropfen spritzen** auf Fenstern und am Boden | Wetter → Regen |
-| **Nach Jahreszeit:** Winter Schnee, Frühling Blüten, Sommer Regen, Herbst Laub | Wetter → Nach Jahreszeit |
 | **Farben** (Eisblau, Gold, Rosa, Mint, Lavendel) und **Glitzern** im Schnee | Aussehen |
-| **Zeitplan:** nur abends, tagsüber oder nachts | Zeitplan |
-| **Tastenkürzel:** Strg+Alt+S an/aus, C wegfegen, W nächstes Wetter, B Schneeball, M Schneemann; **Doppelklick** aufs Symbol: an/aus | Tastenkürzel |
-| **Deutsches Menü**, wenn Windows auf Deutsch läuft | – |
-| **Sparsamer:** niedrige Priorität und Effizienzmodus (Windows 11), Interaktion höchstens 60 fps, 4 fps wenn nichts zu sehen ist, Sparmodus 20 fps, Speicher wird regelmäßig freigegeben | Aussehen → Bildrate |
-| **Autostart:** startet ab sofort mit Windows (einmalig eingeschaltet, im Menü abschaltbar) | Beim Anmelden starten |
-| **Signierte Builds** möglich (siehe unten) und **winget**-Vorlagen in `packaging/winget` | – |
+| **Zeitplan:** nur abends, tagsüber oder nachts | Verhalten → Zeitplan |
+| **Deutsch**, wenn Windows auf Deutsch läuft | – |
+| **Autostart:** startet ab sofort mit Windows (einmalig eingeschaltet, abschaltbar) | Verhalten → Mit Windows starten |
+| **Signierte Builds** möglich (siehe unten) und **winget**: wird bei jedem Release automatisch eingereicht, sobald das Secret `WINGET_TOKEN` gesetzt ist (siehe `packaging/winget`) | – |
 
 Unverändert vom Original: Pause bei Vollbild-Apps, Präsentationen, Sperrbildschirm und ausgeschaltetem Display; ein Overlay pro Bildschirm; weniger Leistung im Akku- und Energiesparmodus; unsichtbar in Screenshots.
 
