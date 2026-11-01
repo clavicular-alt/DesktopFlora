@@ -1,0 +1,12 @@
+//! The snow itself, free of any platform: the simulation, its drifts and the geometry they use.
+//! The Mac app has its own in Swift, and the site its own in JavaScript.
+
+pub mod geometry;
+pub mod layer;
+pub mod sha256;
+pub mod simulation;
+pub mod version;
+pub mod weather;
+
+#[cfg(test)]
+mod tests;

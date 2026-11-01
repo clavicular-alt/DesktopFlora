@@ -1,0 +1,91 @@
+name: Build
+
+# Every push to main builds DesktopFlora-Setup.exe and publishes it as the release v<version from windows/Cargo.toml>,
+# which the app's updater looks for. A version that already has a release gets its files replaced.
+on:
+  push:
+    branches: [main]
+    paths: [".github/workflows/build.yml", "core/**", "windows/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    env:
+      # Optional code signing: add SIGN_CERT_BASE64 (a .pfx, base64) and SIGN_PASSWORD as repository secrets.
+      SIGN_CERT_BASE64: ${{ secrets.SIGN_CERT_BASE64 }}
+      SIGN_PASSWORD: ${{ secrets.SIGN_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test the simulation
+        run: cargo test --release --manifest-path core/Cargo.toml
+
+      - name: Build the app
+        run: cargo build --release --locked --manifest-path windows/Cargo.toml --bin DesktopFlora
+
+      - name: Prepare signing
+        if: env.SIGN_CERT_BASE64 != ''
+        shell: pwsh
+        run: |
+          [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\sign.pfx", [Convert]::FromBase64String($env:SIGN_CERT_BASE64))
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName | Select-Object -Last 1
+          "SIGNTOOL=$($signtool.FullName)" >> $env:GITHUB_ENV
+
+      - name: Sign the app
+        if: env.SIGN_CERT_BASE64 != ''
+        shell: pwsh
+        run: |
+          & $env:SIGNTOOL sign /f "$env:RUNNER_TEMP\sign.pfx" /p $env:SIGN_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 windows\target\release\DesktopFlora.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build the installer
+        shell: pwsh
+        run: |
+          $env:SNOWHUSH_APP = "$PWD\windows\target\release\DesktopFlora.exe"
+          cargo build --release --locked --manifest-path windows/Cargo.toml --bin DesktopFlora-Setup --features setup
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item windows\target\release\DesktopFlora-Setup.exe dist\
+
+      - name: Sign the installer
+        if: env.SIGN_CERT_BASE64 != ''
+        shell: pwsh
+        run: |
+          & $env:SIGNTOOL sign /f "$env:RUNNER_TEMP\sign.pfx" /p $env:SIGN_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 dist\DesktopFlora-Setup.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Checksums
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash dist\DesktopFlora-Setup.exe -Algorithm SHA256).Hash.ToLower()
+          "$hash *DesktopFlora-Setup.exe" | Out-File -Encoding ascii dist\SHA256SUMS.txt
+          Get-Content dist\SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DesktopFlora-Setup
+          path: dist/
+
+      - name: Read the version
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path windows\Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          "VERSION=$version" >> $env:GITHUB_ENV
+
+      - name: Publish the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION }}
+          target_commitish: ${{ github.sha }}
+          name: DesktopFlora ${{ env.VERSION }}
+          body: |
+            DesktopFlora ${{ env.VERSION }} for Windows 10 and 11. Download `DesktopFlora-Setup.exe`; it installs for the current user without administrator rights and replaces Snowhush Plus if that is installed, keeping its settings.
+            SHA-256 of the installer: see `SHA256SUMS.txt`.
+          files: |
+            dist/DesktopFlora-Setup.exe
+            dist/SHA256SUMS.txt
+          make_latest: true

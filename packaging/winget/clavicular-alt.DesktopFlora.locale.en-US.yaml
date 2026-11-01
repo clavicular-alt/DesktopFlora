@@ -1,0 +1,15 @@
+PackageIdentifier: clavicular-alt.DesktopFlora
+PackageVersion: VERSION
+PackageLocale: en-US
+Publisher: DesktopFlora
+PackageName: DesktopFlora
+License: MIT
+LicenseUrl: https://github.com/clavicular-alt/DesktopFlora/blob/main/LICENSE
+PackageUrl: https://github.com/clavicular-alt/DesktopFlora
+ShortDescription: Snow, rain, blossoms or leaves falling on your Windows desktop, settling on your windows.
+Tags:
+  - snow
+  - desktop
+  - tray
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0
