@@ -81,7 +81,7 @@ struct Window {
 }
 
 /// The windows on screen, front to back, re-read when the system reports a window moving, showing, hiding,
-/// minimizing or changing desktops, and twice a second in case a report went missing.
+/// minimizing or changing desktops, and once a second in case a report went missing.
 pub struct Tracker {
     hooks: Vec<HWINEVENTHOOK>,
     desktops: Option<IVirtualDesktopManager>,
@@ -144,7 +144,8 @@ impl Tracker {
     /// Re-reads the window list if anything may have changed; returns whether it did.
     pub fn refresh(&mut self, clock: &Clock, now: i64) -> bool {
         let events = EVENTS.get();
-        if !events.changed && clock.seconds(now - self.listed_at) < 0.5 {
+        // The system reports changes as they happen; the list is read again once a second besides, in case one went missing.
+        if !events.changed && clock.seconds(now - self.listed_at) < 1.0 {
             return false;
         }
         EVENTS.set(Events { changed: false, ..events });
@@ -448,7 +449,7 @@ pub fn process_name(process: u32) -> String {
     }
 }
 
-fn windows_build() -> u32 {
+pub fn windows_build() -> u32 {
     let mut buffer = [0u16; 32];
     let mut size = (buffer.len() * 2) as u32;
     let status = unsafe {

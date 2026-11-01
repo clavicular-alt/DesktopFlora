@@ -130,13 +130,26 @@ pub struct Look {
     pub wind: f32,
     /// How strongly a moving cursor stirs the flakes in the air; zero leaves them alone.
     pub mouse_wind: f32,
-    /// A colour for everything that falls, in place of its own.
-    pub color: Option<[f32; 3]>,
+    /// Colours for everything that falls, in place of its own: each flake takes one of the first `colors` at random,
+    /// and with none, everything keeps its natural colour.
+    pub palette: [[f32; 3]; MAX_COLORS],
+    pub colors: usize,
+}
+
+/// Room in a `Look`'s palette.
+pub const MAX_COLORS: usize = 5;
+
+impl Look {
+    /// The palette's average, for tinting the drifts; `None` with no colours chosen.
+    pub fn average_color(&self) -> Option<[f32; 3]> {
+        let colors = &self.palette[..self.colors.min(MAX_COLORS)];
+        (!colors.is_empty()).then(|| std::array::from_fn(|i| colors.iter().map(|c| c[i]).sum::<f32>() / colors.len() as f32))
+    }
 }
 
 impl Default for Look {
     fn default() -> Look {
-        Look { weather: Weather::Snow, size: 1.0, wind: 1.0, mouse_wind: 1.0, color: None }
+        Look { weather: Weather::Snow, size: 1.0, wind: 1.0, mouse_wind: 1.0, palette: [[1.0; 3]; MAX_COLORS], colors: 0 }
     }
 }
 
@@ -404,7 +417,8 @@ impl SnowSimulation {
 
     /// Changes what falls. A new kind of weather replaces the flakes in the air right away, where they are.
     pub fn set_look(&mut self, look: Look) {
-        let weather_changed = look.weather != self.air.look.weather || look.color != self.air.look.color;
+        let palette = |look: &Look| look.palette[..look.colors.min(MAX_COLORS)].to_vec();
+        let weather_changed = look.weather != self.air.look.weather || palette(&look) != palette(&self.air.look);
         self.air.look = look;
         if weather_changed {
             for i in 0..self.air.flakes.len() {
@@ -1621,8 +1635,9 @@ impl Air {
                 flake.hue_amount = 0.6;
             }
         }
-        if let Some(color) = look.color {
-            flake.hue = color;
+        let colors = look.colors.min(MAX_COLORS);
+        if colors > 0 {
+            flake.hue = look.palette[(random.next() * colors as f32) as usize % colors];
             flake.hue_amount = 0.85;
         }
         flake.velocity.y = -flake.fall_speed;

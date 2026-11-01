@@ -7,7 +7,7 @@ use windows::Win32::System::Registry::{
 use windows::Win32::UI::WindowsAndMessaging::{SPI_GETCLIENTAREAANIMATION, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, SystemParametersInfoW};
 use windows::core::{BOOL, PCWSTR, w};
 
-use snowhush_core::simulation::{Look, Snowfall, Weather};
+use snowhush_core::simulation::{Look, MAX_COLORS, Snowfall, Weather};
 
 const KEY: PCWSTR = w!("Software\\Snowhush");
 const RUN: PCWSTR = w!("Software\\Microsoft\\Windows\\CurrentVersion\\Run");
@@ -21,14 +21,6 @@ pub const OPACITIES: [(&str, f32); 4] = [("100%", 1.0), ("75%", 0.75), ("50%", 0
 pub const FRAME_CAPS: [(&str, u32); 4] = [("Auto", 0), ("60 fps", 60), ("30 fps", 30), ("Eco", 20)];
 pub const MOUSE_WINDS: [(&str, f32); 3] = [("Off", 0.0), ("Gentle", 1.0), ("Strong", 2.5)];
 pub const GLITTERS: [(&str, f32); 3] = [("Off", 0.0), ("Normal", 1.0), ("Sparkly", 3.0)];
-pub const COLORS: [(&str, Option<[f32; 3]>); 6] = [
-    ("Natural", None),
-    ("Ice Blue", Some([0.68, 0.84, 1.0])),
-    ("Gold", Some([1.0, 0.84, 0.42])),
-    ("Pink", Some([1.0, 0.68, 0.84])),
-    ("Mint", Some([0.66, 1.0, 0.82])),
-    ("Lavender", Some([0.8, 0.7, 1.0])),
-];
 /// When the snow shows: hours from and to, local time; the same hour twice means always.
 pub const SCHEDULES: [(&str, u32, u32); 4] = [("Always", 0, 0), ("Evenings", 17, 23), ("Daytime", 8, 17), ("Nights", 20, 6)];
 
@@ -66,7 +58,10 @@ pub struct Settings {
     pub seasonal: bool,
     pub mouse_wind: usize,
     pub glitter: usize,
-    pub color: usize,
+    /// Everything falls in the palette's colours instead of its own.
+    pub custom_colors: bool,
+    pub palette: [[f32; 3]; MAX_COLORS],
+    pub palette_len: usize,
     pub schedule: usize,
     /// One per entry of `SHORTCUTS`; `None` when someone removed it.
     pub hotkeys: [Option<Hotkey>; 3],
@@ -82,6 +77,15 @@ impl Settings {
     pub fn load() -> Settings {
         let calm = !animations_enabled();
         let snowfall = read(w!("snowfall")).and_then(|i| Snowfall::ALL.get(i as usize).copied());
+        let mut palette = [[1.0; 3]; MAX_COLORS];
+        let mut palette_len = 0;
+        for hex in read_text(w!("palette")).unwrap_or_default().split('|').take(MAX_COLORS) {
+            let channel = |at: usize| hex.get(at..at + 2).and_then(|c| u8::from_str_radix(c, 16).ok()).map(|v| v as f32 / 255.0);
+            if let (Some(r), Some(g), Some(b)) = (channel(0), channel(2), channel(4)) {
+                palette[palette_len] = [r, g, b];
+                palette_len += 1;
+            }
+        }
         let index = |name: PCWSTR, default: usize, count: usize| read(name).map_or(default, |i| i as usize).min(count - 1);
         // Off used to be one of the amounts; it is the switch now.
         let paused = read(w!("paused")).is_some_and(|v| v != 0) || snowfall == Some(Snowfall::Off);
@@ -93,13 +97,16 @@ impl Settings {
             size: index(w!("flakeSize"), 1, SIZES.len()),
             wind: index(w!("wind"), 1, WINDS.len()),
             opacity: index(w!("opacity"), 0, OPACITIES.len()),
-            frame_cap: index(w!("frameCap"), 0, FRAME_CAPS.len()),
+            // 30 fps unless chosen otherwise: snow drifting doesn't need more, and it halves the work.
+            frame_cap: index(w!("frameCap"), 2, FRAME_CAPS.len()),
             fade_while_typing: read(w!("fadeWhileTyping")).is_some_and(|v| v != 0),
             local_weather: read(w!("localWeather")).is_some_and(|v| v != 0),
             seasonal: read(w!("seasonal")).is_some_and(|v| v != 0),
             mouse_wind: index(w!("mouseWind"), 1, MOUSE_WINDS.len()),
             glitter: index(w!("glitter"), 1, GLITTERS.len()),
-            color: index(w!("color"), 0, COLORS.len()),
+            custom_colors: read(w!("customColors")).is_some_and(|v| v != 0),
+            palette,
+            palette_len,
             schedule: index(w!("schedule"), 0, SCHEDULES.len()),
             hotkeys: SHORTCUTS.map(|(_, name, default)| match read(name) {
                 None => Some(default),
@@ -129,7 +136,12 @@ impl Settings {
         write(w!("seasonal"), self.seasonal as u32);
         write(w!("mouseWind"), self.mouse_wind as u32);
         write(w!("glitter"), self.glitter as u32);
-        write(w!("color"), self.color as u32);
+        write(w!("customColors"), self.custom_colors as u32);
+        let palette: Vec<String> = self.palette[..self.palette_len.min(MAX_COLORS)]
+            .iter()
+            .map(|c| c.iter().map(|v| format!("{:02x}", (v * 255.0).round() as u8)).collect())
+            .collect();
+        write_text(w!("palette"), &palette.join("|"));
         write(w!("schedule"), self.schedule as u32);
         for ((_, name, _), hotkey) in SHORTCUTS.iter().zip(self.hotkeys) {
             write(*name, hotkey.map_or(0, |hotkey| hotkey.modifiers << 16 | hotkey.key));
@@ -148,7 +160,8 @@ impl Settings {
             size: SIZES[self.size].1,
             wind: WINDS[self.wind].1,
             mouse_wind: MOUSE_WINDS[self.mouse_wind].1,
-            color: COLORS[self.color].1,
+            palette: self.palette,
+            colors: if self.custom_colors { self.palette_len.min(MAX_COLORS) } else { 0 },
         }
     }
 
@@ -185,9 +198,13 @@ pub fn excluded_apps() -> Vec<String> {
 }
 
 pub fn set_excluded_apps(apps: &[String]) {
-    let text: Vec<u16> = apps.join("|").encode_utf16().chain([0]).collect();
+    write_text(w!("excludedApps"), &apps.join("|"));
+}
+
+fn write_text(name: PCWSTR, text: &str) {
+    let text: Vec<u16> = text.encode_utf16().chain([0]).collect();
     unsafe {
-        let _ = RegSetKeyValueW(HKEY_CURRENT_USER, KEY, w!("excludedApps"), REG_SZ.0, Some(text.as_ptr().cast()), (text.len() * 2) as u32);
+        let _ = RegSetKeyValueW(HKEY_CURRENT_USER, KEY, name, REG_SZ.0, Some(text.as_ptr().cast()), (text.len() * 2) as u32);
     }
 }
 

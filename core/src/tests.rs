@@ -413,3 +413,19 @@ fn rain_splashes_without_settling() {
     assert!(sprites[..count].iter().any(|sprite| sprite.soft == 1.0 && sprite.position.y < 60.0));
     assert_eq!(piles(&simulation).iter().map(|(_, area)| area).sum::<f32>(), 0.0);
 }
+
+#[test]
+fn a_palette_colours_every_flake() {
+    use crate::simulation::{Look, MAX_COLORS};
+    let mut simulation = SnowSimulation::new(800.0, 600.0, Snowfall::Steady);
+    let mut palette = [[1.0; 3]; MAX_COLORS];
+    palette[0] = [1.0, 0.0, 0.0];
+    palette[1] = [0.0, 0.0, 1.0];
+    simulation.set_look(Look { palette, colors: 2, ..Look::default() });
+    run(&mut simulation, 1.0, AWAY);
+    let mut sprites = vec![Sprite::default(); simulation.sprite_count()];
+    let count = simulation.write_sprites(&mut sprites);
+    assert!(count > 0);
+    assert!(sprites[..count].iter().all(|s| s.tint == [1.0, 0.0, 0.0] || s.tint == [0.0, 0.0, 1.0]));
+    assert_eq!(Look { palette, colors: 2, ..Look::default() }.average_color(), Some([0.5, 0.0, 0.5]));
+}

@@ -10,19 +10,19 @@ Basiert auf [Snowhush](https://github.com/mbezruchko/Snowhush) von Mykhailo Bezr
 
 | Funktion | Wo |
 |---|---|
-| **Eigenes Einstellungsfenster:** Links- oder Rechtsklick aufs Symbol öffnet ein schlichtes Fenster mit vier Reitern (Wetter, Aussehen, Verhalten, Mehr), hell oder dunkel wie Windows | Symbol im Infobereich |
+| **Eigenes Einstellungsfenster:** Links- oder Rechtsklick aufs Symbol öffnet ein schlichtes Schwarz-Weiß-Fenster mit Milchglas (Windows 11) und vier Reitern (Wetter, Aussehen, Verhalten, Mehr), hell oder dunkel wie Windows | Symbol im Infobereich |
 | **An / Aus:** Schalter oben im Fenster, Doppelklick aufs Symbol oder Tastenkürzel | – |
 | **Wetterarten:** Schnee, Regen (spritzt auf), Blüten, Laub (taumelt, bunte Haufen), Sterne (funkeln) | Wetter |
 | **Jahreszeit:** Winter Schnee, Frühling Blüten, Sommer Sterne, Herbst Laub, passend zum Land aus den Windows-Regionseinstellungen (Südhalbkugel umgekehrt) | Wetter → Jahreszeit |
 | **Echtes Wetter vor Ort:** Regen oder Schnee wie draußen, inkl. Stärke und Wind; bei trockenem Wetter die Jahreszeit am Standort (Open-Meteo, Standort auf ~1 km gerundet, alle 30 min) | Wetter → Echtes Wetter vor Ort |
 | **Tastenkürzel frei wählbar:** An/Aus, Wegfegen, Nächstes Wetter; belegte Kürzel werden angezeigt | Mehr → Tastenkürzel |
-| **Ruhig im Hintergrund:** normale Priorität beim Zeichnen (kein Ruckeln), Effizienzmodus und Speicherfreigabe nur, wenn nichts zu sehen ist; 60 fps Obergrenze bei Interaktion, 4 fps ohne Schnee, Sparmodus 20 fps | Verhalten → Bildrate |
-| **Flockengröße, Wind, Deckkraft** | Aussehen |
+| **Ruhig im Hintergrund:** normale Priorität beim Zeichnen (kein Ruckeln), Effizienzmodus und Speicherfreigabe nur, wenn nichts zu sehen ist; standardmäßig 30 fps, 4 fps ohne Schnee, Sparmodus 20 fps, Fensterliste nur einmal pro Sekunde nachgeprüft | Verhalten → Bildrate |
+| **Größe, Wind, Deckkraft, Glitzern** | Aussehen |
 | **Beim Tippen ausblenden:** Schnee wird blass, solange getippt wird (ohne Tastatur- oder Maus-Hook: erkennt eine Reihe von Eingaben bei ruhender Maus) | Verhalten |
 | **Schneefreie Programme:** kein Schnee auf deren Fenstern; maximiert und im Vordergrund verschwindet der Schnee auf dem Bildschirm ganz | Mehr |
 | **Updates in der App:** lädt das neue Setup, prüft den SHA-256 gegen den Release (GitHub-Digest oder `SHA256SUMS.txt`), installiert still und startet neu. Ohne passende Prüfsumme wird nichts ausgeführt | Mehr → Nach Updates suchen |
 | **Wind von der Maus:** schnelle Bewegungen wirbeln die Flocken auf (Aus / Sanft / Stark) | Aussehen → Wind von der Maus |
-| **Farben** (Eisblau, Gold, Rosa, Mint, Lavendel) und **Glitzern** im Schnee | Aussehen |
+| **Farben:** natürlich oder bis zu 5 eigene Farben aus einer Farbleiste | Aussehen → Farbe |
 | **Zeitplan:** nur abends, tagsüber oder nachts | Verhalten → Zeitplan |
 | **Deutsch**, wenn Windows auf Deutsch läuft | – |
 | **Autostart:** startet ab sofort mit Windows (einmalig eingeschaltet, abschaltbar) | Verhalten → Mit Windows starten |

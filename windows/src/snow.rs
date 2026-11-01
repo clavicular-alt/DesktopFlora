@@ -352,7 +352,7 @@ fn run_loop(commands: &Receiver<Command>, links: &Links, mut settings: Settings)
             opacity: opacity * if settings.fade_while_typing { typing.fade } else { 1.0 },
             streak: look.weather.streak(),
             glitter,
-            pile_tint: look.color.map_or(look.weather.pile_tint(), |[r, g, b]| [r, g, b, 0.6]),
+            pile_tint: look.average_color().map_or(look.weather.pile_tint(), |[r, g, b]| [r, g, b, 0.6]),
             frame_cap,
         };
         // While nothing is drawn, as over a full-screen game, outside the schedule or with the screen locked, memory

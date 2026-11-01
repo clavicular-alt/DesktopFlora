@@ -24,14 +24,14 @@ use windows::core::{PCWSTR, Result, w};
 
 use crate::log;
 use crate::outside;
-use crate::panel::{self, Action, View};
-use crate::prefs::{self, COLORS, FRAME_CAPS, GLITTERS, MOUSE_WINDS, OPACITIES, SCHEDULES, SHORTCUTS, SIZES, Settings, WINDS};
+use crate::panel::{self, Action, Source, View};
+use crate::prefs::{self, FRAME_CAPS, GLITTERS, MOUSE_WINDS, OPACITIES, SCHEDULES, SHORTCUTS, SIZES, Settings, WINDS};
 use crate::snow::{self, Command, Links};
 use crate::text::{fill, t};
 use crate::tracker::{COVER_ONLY, IGNORED, class_name, process_name};
 use crate::update::{self, Release};
 use crate::welcome::{self, Handlers};
-use snowhush_core::simulation::{Look, Snowfall, Weather};
+use snowhush_core::simulation::{Look, MAX_COLORS, Snowfall, Weather};
 use snowhush_core::weather::{Conditions, season};
 
 const CLASS: PCWSTR = w!("SnowhushController");
@@ -71,8 +71,8 @@ struct App {
     excluded: Vec<String>,
     /// The weather outside and the latitude it was asked for, while following it.
     outside: Option<(Conditions, f64)>,
-    /// The latitude of the country Windows is set to, for the seasons without a location.
-    home_latitude: f64,
+    /// The country Windows is set to and its latitude, for the seasons without a location.
+    home: (String, f64),
     /// What the snow thread was last told, so only changes are sent.
     sent: Option<(Snowfall, Look, bool)>,
     /// Shortcuts another program already holds.
@@ -127,8 +127,8 @@ pub fn run() -> Result<()> {
             WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS,
         );
         let excluded = prefs::excluded_apps();
-        let home_latitude = outside::home_latitude();
-        log!("home latitude: {home_latitude}");
+        let home = outside::home();
+        log!("home: {home:?}");
         let app = App {
             settings,
             commands,
@@ -142,7 +142,7 @@ pub fn run() -> Result<()> {
             update: None,
             excluded: excluded.clone(),
             outside: None,
-            home_latitude,
+            home,
             sent: None,
             taken: [false; 3],
             double_clicked_at: 0,
@@ -320,7 +320,7 @@ fn with_app(action: impl FnOnce(&App)) {
 fn effective(app: &App, month: u32) -> (Snowfall, Look) {
     let settings = &app.settings;
     let look = settings.look();
-    let latitude = app.outside.filter(|_| settings.local_weather).map_or(app.home_latitude, |(_, latitude)| latitude);
+    let latitude = app.outside.filter(|_| settings.local_weather).map_or(app.home.1, |(_, latitude)| latitude);
     let seasonal = season(month, latitude);
     match app.outside {
         Some((outside, _)) if settings.local_weather => {
@@ -425,25 +425,28 @@ fn view() -> Option<View> {
         let settings = app.settings;
         let now = unsafe { GetLocalTime() };
         let (amount, look) = effective(app, now.wMonth as u32);
-        let season_name = |weather: Weather| match weather {
-            Weather::Snow => t("winter"),
-            Weather::Blossoms => t("spring"),
-            Weather::Stars => t("summer"),
-            Weather::Leaves => t("autumn"),
+        let season = |weather: Weather| match weather {
+            Weather::Snow => t("Winter"),
+            Weather::Blossoms => t("Spring"),
+            Weather::Stars => t("Summer"),
+            Weather::Leaves => t("Autumn"),
             Weather::Rain => String::new(),
         };
+        let weather = t(look.weather.title());
         let status = if settings.local_weather {
-            match app.outside {
-                Some((Conditions { falling: Some((_, weather)), .. }, _)) => fill(&t("Outside right now: {}"), &[&t(weather.title())]),
-                Some(_) => fill(&t("Dry outside, so it's {} for the {}"), &[&t(look.weather.title()), &season_name(look.weather)]),
+            let first = match app.outside {
+                Some((Conditions { falling: Some(_), .. }, _)) => fill(&t("Outside right now: {}"), &[&weather]),
+                Some(_) => fill(&t("Dry outside: {} for the {}"), &[&weather, &season(look.weather)]),
                 None => t("Asking for the weather outside…"),
-            }
+            };
+            (first, t("Place: your location from Windows, rounded to about 1 km"))
         } else if settings.seasonal {
-            fill(&t("It's {} where you are: {}"), &[&season_name(look.weather), &t(look.weather.title())])
+            let place = if app.home.0.is_empty() { t("your region") } else { app.home.0.clone() };
+            (fill(&t("{} · {}"), &[&weather, &season(look.weather)]), fill(&t("Season in {}, from the region set in Windows"), &[&place]))
         } else if !settings.scheduled(now.wHour as u32) {
-            t("Outside the schedule right now")
+            (t("Outside the schedule right now"), String::new())
         } else {
-            String::new()
+            (String::new(), String::new())
         };
         Some(View {
             on: !settings.paused,
@@ -491,10 +494,9 @@ fn act(action: Action) {
                 }
             });
         }
-        Action::LocalWeather => {
-            let on = !APP.with_borrow(|app| app.as_ref().is_some_and(|app| app.settings.local_weather));
-            set_local_weather(window, on);
-            if on {
+        Action::Source(Source::Outside) => {
+            if !APP.with_borrow(|app| app.as_ref().is_some_and(|app| app.settings.local_weather)) {
+                set_local_weather(window, true);
                 check_weather(window, true);
             }
             return;
@@ -546,9 +548,10 @@ fn act(action: Action) {
                 app.outside = None;
                 None
             }
-            Action::Seasonal => {
-                settings.seasonal = !settings.seasonal || settings.local_weather;
+            Action::Source(source) => {
+                settings.seasonal = source == Source::Season;
                 settings.local_weather = false;
+                settings.paused = false;
                 app.outside = None;
                 None
             }
@@ -564,8 +567,22 @@ fn act(action: Action) {
                 settings.mouse_wind = i.min(MOUSE_WINDS.len() - 1);
                 None
             }
-            Action::Color(i) => {
-                settings.color = i.min(COLORS.len() - 1);
+            Action::CustomColors(on) => {
+                settings.custom_colors = on;
+                None
+            }
+            Action::AddColor(rgb) => {
+                if settings.palette_len < MAX_COLORS {
+                    settings.palette[settings.palette_len] = rgb;
+                    settings.palette_len += 1;
+                }
+                None
+            }
+            Action::RemoveColor(i) => {
+                if i < settings.palette_len {
+                    settings.palette.copy_within(i + 1..settings.palette_len, i);
+                    settings.palette_len -= 1;
+                }
                 None
             }
             Action::Schedule(i) => {

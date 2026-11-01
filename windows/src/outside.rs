@@ -2,7 +2,7 @@
 //! Without a location, the seasons follow the country Windows is set to.
 
 use windows::Devices::Geolocation::{GeolocationAccessStatus, Geolocator, PositionAccuracy};
-use windows::Win32::Globalization::{GEO_LATITUDE, GEOCLASS_NATION, GetGeoInfoW, GetUserGeoID};
+use windows::Win32::Globalization::{GEO_FRIENDLYNAME, GEO_LATITUDE, GEOCLASS_NATION, GetGeoInfoW, GetUserGeoID};
 
 use snowhush_core::weather::{Conditions, conditions, forecast_path};
 
@@ -17,16 +17,18 @@ pub fn now() -> Result<(Conditions, f64), String> {
     Ok((conditions, latitude))
 }
 
-/// The latitude of the country set in Windows' region settings, for the seasons; central Europe if it can't be read.
-pub fn home_latitude() -> f64 {
+/// The country set in Windows' region settings, by name in the person's language, and its latitude, for the seasons;
+/// central Europe if it can't be read.
+pub fn home() -> (String, f64) {
     unsafe {
         let nation = GetUserGeoID(GEOCLASS_NATION);
-        let mut buffer = [0u16; 32];
-        let length = GetGeoInfoW(nation, GEO_LATITUDE, Some(&mut buffer), 0);
-        if length <= 1 {
-            return 50.0;
-        }
-        String::from_utf16_lossy(&buffer[..length as usize - 1]).trim().replace(',', ".").parse().unwrap_or(50.0)
+        let info = |kind| {
+            let mut buffer = [0u16; 128];
+            let length = GetGeoInfoW(nation, kind, Some(&mut buffer), 0);
+            (length > 1).then(|| String::from_utf16_lossy(&buffer[..length as usize - 1]).trim().to_string())
+        };
+        let latitude = info(GEO_LATITUDE).and_then(|text| text.replace(',', ".").parse().ok()).unwrap_or(50.0);
+        (info(GEO_FRIENDLYNAME).unwrap_or_default(), latitude)
     }
 }
 
