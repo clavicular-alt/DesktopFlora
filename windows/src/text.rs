@@ -79,7 +79,7 @@ pub fn t(text: &str) -> String {
         "Ctrl+Alt+C  Clear snow" => "Strg+Alt+C  Schnee wegfegen",
         "Ctrl+Alt+W  Next weather" => "Strg+Alt+W  Nächstes Wetter",
         "Ctrl+Alt+B  Snowball at the pointer" => "Strg+Alt+B  Schneeball zum Mauszeiger",
-        "Ctrl+Alt+M  Snowman at the pointer" => "Strg+Alt+M  Schneemann beim Mauszeiger",
+        "Ctrl+Alt+N  Snowman at the pointer" => "Strg+Alt+N  Schneemann beim Mauszeiger",
         "Double-click the tray icon: snow on/off" => "Doppelklick aufs Symbol: Schnee an/aus",
         "Check for Updates…" => "Nach Updates suchen…",
         "Quit" => "Beenden",

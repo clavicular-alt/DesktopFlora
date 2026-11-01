@@ -17,7 +17,7 @@ use windows::Win32::UI::HiDpi::{GetDpiForSystem, GetSystemMetricsForDpi};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetDoubleClickTime, HOT_KEY_MODIFIERS, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, RegisterHotKey, UnregisterHotKey,
 };
-use windows::Win32::UI::Input::{RAWINPUTDEVICE, RIDEV_INPUTSINK, RegisterRawInputDevices};
+use windows::Win32::UI::Input::{RAWINPUTDEVICE, RIDEV_INPUTSINK, RIDEV_REMOVE, RegisterRawInputDevices};
 use windows::Win32::UI::Shell::{
     NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIIF_INFO, NIM_ADD, NIM_DELETE, NIM_MODIFY, NIM_SETVERSION, NIN_SELECT,
     NOTIFYICON_VERSION_4, NOTIFYICONDATAW, Shell_NotifyIconW,
@@ -86,9 +86,10 @@ const HOTKEY_CLEAR: i32 = 2;
 const HOTKEY_WEATHER: i32 = 3;
 const HOTKEY_SNOWBALL: i32 = 4;
 const HOTKEY_SNOWMAN: i32 = 5;
-/// Ctrl+Alt plus a letter, by hotkey id.
+/// Ctrl+Alt plus a letter, by hotkey id. Ctrl+Alt is AltGr too, so none of these may type a character with AltGr
+/// on a German keyboard, as M does (µ).
 const HOTKEYS: [(i32, u32); 5] =
-    [(HOTKEY_TOGGLE, b'S' as u32), (HOTKEY_CLEAR, b'C' as u32), (HOTKEY_WEATHER, b'W' as u32), (HOTKEY_SNOWBALL, b'B' as u32), (HOTKEY_SNOWMAN, b'M' as u32)];
+    [(HOTKEY_TOGGLE, b'S' as u32), (HOTKEY_CLEAR, b'C' as u32), (HOTKEY_WEATHER, b'W' as u32), (HOTKEY_SNOWBALL, b'B' as u32), (HOTKEY_SNOWMAN, b'N' as u32)];
 
 static TASKBAR_CREATED: AtomicU32 = AtomicU32::new(0);
 /// When the mouse was last used, from raw input: input without it was the keyboard.
@@ -164,9 +165,9 @@ pub fn run() -> Result<()> {
             0,
             WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS,
         );
-        // Mouse input only, never the keyboard: it tells Fade While Typing that input came from the mouse.
-        let mouse = RAWINPUTDEVICE { usUsagePage: 0x01, usUsage: 0x02, dwFlags: RIDEV_INPUTSINK, hwndTarget: window };
-        let _ = RegisterRawInputDevices(&[mouse], size_of::<RAWINPUTDEVICE>() as u32);
+        if settings.fade_while_typing {
+            watch_mouse(window, true);
+        }
         let excluded = prefs::excluded_apps();
         let app = App {
             settings,
@@ -439,11 +440,26 @@ fn toggle_snow() {
             app.settings.snowfall = Snowfall::Off;
             stop_following(app);
         } else {
+            // Following clear skies outside, nothing would fall: switching on stops following them.
             app.settings.snowfall = app.snowfall_before_off;
+            stop_following(app);
         }
         app.settings.save();
     });
     apply();
+}
+
+/// Listens to the mouse, never the keyboard, while Fade While Typing is on: input without the mouse was typing.
+/// Off, the main thread isn't woken for every mouse move.
+fn watch_mouse(window: HWND, on: bool) {
+    let mouse = if on {
+        RAWINPUTDEVICE { usUsagePage: 0x01, usUsage: 0x02, dwFlags: RIDEV_INPUTSINK, hwndTarget: window }
+    } else {
+        RAWINPUTDEVICE { usUsagePage: 0x01, usUsage: 0x02, dwFlags: RIDEV_REMOVE, hwndTarget: HWND::default() }
+    };
+    unsafe {
+        let _ = RegisterRawInputDevices(&[mouse], size_of::<RAWINPUTDEVICE>() as u32);
+    }
 }
 
 fn hotkey(id: i32) {
@@ -636,7 +652,7 @@ fn build_menu(settings: &Settings, excluded: &[String], weather: Weather, login:
         "Ctrl+Alt+C  Clear snow",
         "Ctrl+Alt+W  Next weather",
         "Ctrl+Alt+B  Snowball at the pointer",
-        "Ctrl+Alt+M  Snowman at the pointer",
+        "Ctrl+Alt+N  Snowman at the pointer",
         "Double-click the tray icon: snow on/off",
     ] {
         shortcuts.note(line);
@@ -795,6 +811,7 @@ fn choose(window: HWND, chosen: u32, login: bool, last: Option<String>) {
                         }
                         ID_TYPING => {
                             settings.fade_while_typing = !settings.fade_while_typing;
+                            watch_mouse(window, settings.fade_while_typing);
                             Some(Command::FadeWhileTyping(settings.fade_while_typing))
                         }
                         _ => return,

@@ -18,7 +18,7 @@ Basiert auf [Snowhush](https://github.com/mbezruchko/Snowhush) von Mykhailo Bezr
 | **Schneefreie Programme:** kein Schnee auf deren Fenstern; maximiert und im Vordergrund verschwindet der Schnee auf dem Bildschirm ganz | Snow-Free Programs |
 | **Updates in der App:** lädt das neue Setup, prüft den SHA-256 gegen den Release (GitHub-Digest oder `SHA256SUMS.txt`), installiert still und startet neu. Ohne passende Prüfsumme wird nichts ausgeführt | Check for Updates… |
 | **Schneebälle:** fliegen aus dem Schneehaufen zum Mauszeiger und zerplatzen | Strg+Alt+B, Spaß → Schneeball werfen |
-| **Schneemänner:** aus dem Schnee am Boden gebaut (bis zu 4), schmelzen mit, fallen um, wenn man mit der Maus hineinfährt | Strg+Alt+M, Spaß → Schneemann bauen |
+| **Schneemänner:** aus dem Schnee am Boden gebaut (bis zu 4), schmelzen mit, fallen um, wenn man mit der Maus hineinfährt | Strg+Alt+N, Spaß → Schneemann bauen |
 | **Wind von der Maus:** schnelle Bewegungen wirbeln die Flocken auf (Aus / Sanft / Stark) | Aussehen → Wind von der Maus |
 | **Regentropfen spritzen** auf Fenstern und am Boden | Wetter → Regen |
 | **Nach Jahreszeit:** Winter Schnee, Frühling Blüten, Sommer Regen, Herbst Laub | Wetter → Nach Jahreszeit |

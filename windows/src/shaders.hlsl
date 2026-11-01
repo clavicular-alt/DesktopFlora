@@ -47,7 +47,9 @@ SpriteOut spriteVertex(SpriteIn s) {
     float pixels = s.size * scale;
     // About a 1/55 s exposure, capped so even the fastest grain stays a short smear and never reads as rain, unless it is rain.
     float2 travel = s.velocity * 0.018;
-    float smear = min(length(travel), s.size * (s.lump > 0.0 ? 1.2 : 2.2) * look.y);
+    // Rain's long streaks are for the drops only: lumps, snowballs and the snowman's coloured parts keep snow's.
+    float streakScale = (s.lump > 0.0 || s.tintAmount >= 1.0) ? 1.0 : look.y;
+    float smear = min(length(travel), s.size * (s.lump > 0.0 ? 1.2 : 2.2) * streakScale);
     float2 streak = smear > 0.25 ? normalize(travel) * smear * scale : float2(0.0, 0.0);
     // A lump's ragged edge reaches past its nominal size.
     float reach = s.lump > 0.0 ? 1.3 : 1.0;

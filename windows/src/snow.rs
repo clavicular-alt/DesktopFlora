@@ -366,8 +366,10 @@ fn run_loop(commands: &Receiver<Command>, links: &Links, mut settings: Settings)
             pile_tint: look.color.map_or(look.weather.pile_tint(), |[r, g, b]| [r, g, b, 0.6]),
             frame_cap,
         };
-        // Memory the process touched once but hasn't needed since goes back to Windows every few minutes.
-        if clock.seconds(now - trimmed_at) > 300.0 {
+        // While nothing is drawn, as over a full-screen game, outside the schedule or with the screen locked, memory
+        // goes back to Windows. While snowing it would only be paged back in at once, which costs more than it saves.
+        let hidden = !active || screens.iter().all(Screen::covered);
+        if hidden && clock.seconds(now - trimmed_at) > 60.0 {
             trimmed_at = now;
             unsafe {
                 let _ = EmptyWorkingSet(GetCurrentProcess());
