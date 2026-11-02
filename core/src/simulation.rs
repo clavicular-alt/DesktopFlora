@@ -178,6 +178,26 @@ pub struct Sprite {
     pub tint: [f32; 3],
     /// Gives a lump of snow its ragged outline and tumble; zero for a round flake.
     pub lump: f32,
+    /// What it is drawn as: one of the `SHAPE_` values.
+    pub shape: f32,
+}
+
+/// Sprite shapes: a round flake or lump of snow, a leaf, a petal, a twinkling star.
+pub const SHAPE_SNOW: f32 = 0.0;
+pub const SHAPE_LEAF: f32 = 1.0;
+pub const SHAPE_PETAL: f32 = 2.0;
+pub const SHAPE_STAR: f32 = 3.0;
+
+/// The colours autumn leaves come in.
+const LEAF_COLOURS: [[f32; 3]; 5] = [[0.86, 0.47, 0.13], [0.72, 0.2, 0.1], [0.92, 0.72, 0.22], [0.55, 0.33, 0.15], [0.62, 0.55, 0.16]];
+const PETAL_COLOURS: [[f32; 3]; 3] = [[1.0, 0.72, 0.82], [1.0, 0.86, 0.92], [0.98, 0.62, 0.76]];
+
+/// A fixed number between 0 and 1 for each new grain, so its colour and outline stay its own as the list is reordered.
+fn grain_seed() -> f32 {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static NEXT: AtomicU32 = AtomicU32::new(1);
+    let n = NEXT.fetch_add(1, Ordering::Relaxed).wrapping_mul(2_654_435_761);
+    (n >> 8) as f32 / (1u32 << 24) as f32
 }
 
 /// A bit of something that crumbles into snow, such as a window: it keeps its colour for a moment while it falls.
@@ -233,6 +253,7 @@ struct Flake {
     splashes: bool,
     /// Stars: brighten and dim with their phase.
     twinkles: bool,
+    shape: f32,
     /// Scales the drift it leaves, so bigger or lighter things don't pile up faster than snow.
     weight: f32,
     /// The direction of the gust that caught the flake and carries it off the screen; zero until then.
@@ -249,6 +270,7 @@ struct Grain {
     lump: f32,
     /// Powder carried off by a gust: it rides the wind off the screen instead of settling.
     blown: bool,
+    seed: f32,
 }
 
 /// Powder thrown up by a lump bursting: it billows, slows in the air and fades without settling.
@@ -525,31 +547,40 @@ impl SnowSimulation {
             velocity: flake.velocity,
             size: flake.size,
             alpha: if flake.twinkles { flake.alpha * (0.55 + 0.45 * (flake.phase * 3.0).sin()) } else { flake.alpha },
+            shape: flake.shape,
             soft: flake.soft,
             tint_amount: flake.tint_amount.max(flake.hue_amount),
             tint: if flake.tint_amount >= flake.hue_amount { flake.tint } else { flake.hue },
             lump: flake.lump,
         });
+        // What lies on a window falls off as what it is: leaves as leaves, petals as petals, in their colours.
+        let (shape, colours, amount) = self.drift_look();
+        let pick = |seed: f32| colours.get((seed * colours.len() as f32) as usize % colours.len().max(1)).copied().unwrap_or([1.0; 3]);
+        let shaped = shape != SHAPE_SNOW;
         let grains = self.air.grains.iter().map(|grain| Sprite {
             position: grain.position,
             velocity: grain.velocity,
-            size: grain.size,
-            alpha: if grain.lump > 0.0 {
+            size: if shaped { grain.size * 1.8 + 2.0 } else { grain.size },
+            alpha: if grain.lump > 0.0 || shaped {
                 0.97
             } else if grain.blown {
                 0.8
             } else {
                 0.95
             },
-            soft: if grain.lump > 0.0 { 0.2 } else { 0.3 },
-            tint: [1.0; 3],
-            lump: grain.lump,
-            ..Sprite::default()
+            soft: if grain.lump > 0.0 || shaped { 0.2 } else { 0.3 },
+            tint_amount: amount,
+            tint: pick(grain.seed),
+            lump: if shaped { 0.05 + 0.95 * grain.seed } else { grain.lump },
+            shape,
         });
+        let mote_tint = pick(0.0);
         let motes = self.air.motes.iter().map(|mote| {
             let t = mote.age / mote.life;
             let fade = (mote.age / 0.06).min(1.0) * (1.0 - t).powf(1.5);
-            Sprite { position: mote.position, size: mote.size * (1.0 + t), alpha: mote.alpha * fade, soft: 1.0, tint: [1.0; 3], ..Sprite::default() }
+            // Powder is snow's alone; anything else only throws up a faint dust.
+            let alpha = mote.alpha * fade * if shaped { 0.4 } else { 1.0 };
+            Sprite { position: mote.position, size: mote.size * (1.0 + t), alpha, soft: 1.0, tint_amount: amount, tint: mote_tint, ..Sprite::default() }
         });
         let mut count = 0;
         for (slot, sprite) in buffer.iter_mut().zip(flakes.chain(grains).chain(motes)) {
@@ -557,6 +588,25 @@ impl SnowSimulation {
             count += 1;
         }
         count
+    }
+
+    /// How what lies on the screen looks when it falls again: its shape, the colours it comes in and how much they show.
+    fn drift_look(&self) -> (f32, Vec<[f32; 3]>, f32) {
+        let look = &self.air.look;
+        let shape = match look.weather {
+            Weather::Leaves => SHAPE_LEAF,
+            Weather::Blossoms => SHAPE_PETAL,
+            _ => SHAPE_SNOW,
+        };
+        let colours = look.colors.min(MAX_COLORS);
+        if colours > 0 {
+            return (shape, look.palette[..colours].to_vec(), 0.85);
+        }
+        match look.weather {
+            Weather::Leaves => (shape, LEAF_COLOURS.to_vec(), 1.0),
+            Weather::Blossoms => (shape, PETAL_COLOURS.to_vec(), 0.9),
+            _ => (shape, vec![[1.0; 3]], 0.0),
+        }
     }
 
     pub fn write_layers(&self, buffer: &mut [f32]) -> Vec<PileLayer<'_>> {
@@ -607,6 +657,7 @@ impl SnowSimulation {
                 lump: 0.0,
                 splashes: false,
                 twinkles: false,
+                shape: SHAPE_SNOW,
                 weight: 1.0,
                 blown: 0.0,
             });
@@ -1029,8 +1080,10 @@ impl SnowSimulation {
         // Melting nearly keeps pace with the snowfall, so heavier snowfall builds drifts only a little higher.
         let falling = self.snowfall.flakes_per_megapoint() * self.air.strength * self.density;
         let melt_pace = if falling > 0.0 { (falling / THAW_BALANCE).powf(THAW_EXPONENT) } else { 1.0 };
+        // Only snow melts: leaves and petals stay where they fell.
+        let melts = self.thaws && self.air.look.weather == Weather::Snow;
         for (li, layer) in self.layers.iter_mut().enumerate() {
-            if !self.accumulates || self.thaws {
+            if !self.accumulates || melts {
                 let floor = if !self.accumulates {
                     0.0
                 } else if li == 0 {
@@ -1349,6 +1402,7 @@ impl Air {
                 size: (share.sqrt() * 1.05).min(11.0),
                 lump: random.range(0.05, 1.0),
                 blown: false,
+                seed: grain_seed(),
             });
         }
     }
@@ -1423,6 +1477,7 @@ impl Air {
                 size: (share.sqrt() * 1.05).clamp(1.1, 5.0),
                 lump: 0.0,
                 blown: false,
+                seed: grain_seed(),
             });
         }
     }
@@ -1532,6 +1587,7 @@ impl Air {
                 size: (share.sqrt() * 1.05).clamp(1.1, 4.2),
                 lump: 0.0,
                 blown: false,
+                seed: grain_seed(),
             });
         }
         area
@@ -1584,6 +1640,7 @@ impl Air {
             lump: 0.0,
             splashes: false,
             twinkles: false,
+            shape: SHAPE_SNOW,
             weight: 1.0,
             blown: 0.0,
         };
@@ -1606,31 +1663,35 @@ impl Air {
                 flake.size *= 1.2;
                 flake.sway_amount *= 1.6;
                 flake.alpha = (flake.alpha + 0.2).min(0.95);
-                flake.hue = if random.next() < 0.5 { [1.0, 0.72, 0.82] } else { [1.0, 0.88, 0.93] };
+                flake.hue = PETAL_COLOURS[(random.next() * PETAL_COLOURS.len() as f32) as usize % PETAL_COLOURS.len()];
                 flake.hue_amount = 0.9;
                 flake.lump = random.range(0.05, 1.0);
+                flake.shape = SHAPE_PETAL;
                 flake.weight = 0.6;
             }
             Weather::Leaves => {
-                const COLOURS: [[f32; 3]; 4] = [[0.93, 0.55, 0.2], [0.8, 0.25, 0.15], [0.95, 0.78, 0.3], [0.6, 0.4, 0.22]];
                 flake.fall_speed *= 0.8;
-                flake.size = if near { random.range(12.0, 16.0) } else { 4.0 + depth * 6.0 + random.range(0.0, 1.5) };
-                flake.sway_amount *= 2.0;
-                flake.alpha = if near { 0.6 } else { 0.7 + depth * 0.25 };
-                flake.soft = 0.25;
-                flake.hue = COLOURS[(random.next() * COLOURS.len() as f32) as usize % COLOURS.len()];
+                flake.size = if near { random.range(14.0, 18.0) } else { 6.0 + depth * 7.0 + random.range(0.0, 2.0) };
+                flake.sway_amount *= 2.2;
+                flake.alpha = if near { 0.7 } else { 0.82 + depth * 0.16 };
+                flake.soft = 0.15;
+                flake.hue = LEAF_COLOURS[(random.next() * LEAF_COLOURS.len() as f32) as usize % LEAF_COLOURS.len()];
                 flake.hue_amount = 1.0;
                 flake.lump = random.range(0.05, 1.0);
-                flake.weight = 0.3;
+                flake.shape = SHAPE_LEAF;
+                // Leaves are big but light: they shouldn't pile up faster than snow.
+                flake.weight = 0.12;
             }
             Weather::Stars => {
                 flake.fall_speed = if near { random.range(14.0, 20.0) } else { 4.0 + depth * 10.0 + random.range(0.0, 3.0) };
-                flake.size = if near { random.range(3.0, 4.0) } else { 1.0 + depth * 1.6 };
+                // Drawn with rays around a small core, so a star needs a bigger sprite than a flake.
+                flake.size = if near { random.range(8.0, 10.0) } else { 3.0 + depth * 4.0 };
                 flake.alpha = if near { 0.7 } else { 0.5 + depth * 0.45 };
                 flake.soft = 0.35;
                 flake.sway_amount *= 0.2;
                 flake.settles = false;
                 flake.twinkles = true;
+                flake.shape = SHAPE_STAR;
                 flake.hue = if random.next() < 0.7 { [1.0, 0.95, 0.78] } else { [0.8, 0.88, 1.0] };
                 flake.hue_amount = 0.6;
             }
@@ -1679,6 +1740,7 @@ impl Air {
             size: random.range(1.1, 2.6),
             lump: 0.0,
             blown: true,
+                seed: grain_seed(),
         });
         if random.next() >= 0.35 || self.motes.len() >= MAX_MOTES {
             return;

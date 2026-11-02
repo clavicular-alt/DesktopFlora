@@ -124,6 +124,7 @@ impl Gpu {
                 element(s!("TINTAMOUNT"), DXGI_FORMAT_R32_FLOAT, 28),
                 element(s!("TINTCOLOR"), DXGI_FORMAT_R32G32B32_FLOAT, 32),
                 element(s!("LUMP"), DXGI_FORMAT_R32_FLOAT, 44),
+                element(s!("SHAPE"), DXGI_FORMAT_R32_FLOAT, 48),
             ];
             let mut sprite_layout = None;
             device.CreateInputLayout(&elements, blob_bytes(&sprite_code), Some(&mut sprite_layout))?;

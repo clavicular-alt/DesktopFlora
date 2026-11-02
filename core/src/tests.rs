@@ -429,3 +429,31 @@ fn a_palette_colours_every_flake() {
     assert!(sprites[..count].iter().all(|s| s.tint == [1.0, 0.0, 0.0] || s.tint == [0.0, 0.0, 1.0]));
     assert_eq!(Look { palette, colors: 2, ..Look::default() }.average_color(), Some([0.5, 0.0, 0.5]));
 }
+
+#[test]
+fn leaves_dont_melt_and_fall_off_as_leaves() {
+    use crate::simulation::{Look, SHAPE_LEAF, Weather};
+    let mut simulation = SnowSimulation::new(800.0, 600.0, Snowfall::Heavy);
+    simulation.set_look(Look { weather: Weather::Leaves, ..Look::default() });
+    simulation.thaws = true;
+    run(&mut simulation, 60.0, AWAY);
+    let lying: f32 = piles(&simulation).iter().map(|(_, area)| area).sum();
+    simulation.set_snowfall(Snowfall::Off);
+    run(&mut simulation, 120.0, AWAY);
+    let later: f32 = piles(&simulation).iter().map(|(_, area)| area).sum();
+    assert!(lying > 0.0 && later >= lying * 0.95, "leaves melted: {lying} -> {later}");
+
+    // A window with leaves on it closing: they drop as leaves.
+    let mut simulation = SnowSimulation::new(800.0, 600.0, Snowfall::Heavy);
+    simulation.set_look(Look { weather: Weather::Leaves, ..Look::default() });
+    simulation.update_windows(&[surface(1, 200.0, 400.0, 300.0)], 1.0 / 60.0, &HashSet::new(), &HashSet::new(), false);
+    run(&mut simulation, 40.0, AWAY);
+    simulation.set_snowfall(Snowfall::Off);
+    run(&mut simulation, 30.0, AWAY);
+    simulation.update_windows(&[], 1.0 / 60.0, &HashSet::new(), &HashSet::new(), false);
+    simulation.step(DT, AWAY);
+    let mut sprites = vec![Sprite::default(); simulation.sprite_count()];
+    let count = simulation.write_sprites(&mut sprites);
+    assert!(count > 0, "nothing fell off the window");
+    assert!(sprites[..count].iter().filter(|s| s.alpha > 0.5).all(|s| s.shape == SHAPE_LEAF), "something fell as snow");
+}

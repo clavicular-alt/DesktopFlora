@@ -12,7 +12,7 @@ Basiert auf [Snowhush](https://github.com/mbezruchko/Snowhush) von Mykhailo Bezr
 |---|---|
 | **Eigenes Einstellungsfenster:** Links- oder Rechtsklick aufs Symbol öffnet ein schlichtes Schwarz-Weiß-Fenster mit Milchglas (Windows 11) und vier Reitern (Wetter, Aussehen, Verhalten, Mehr), hell oder dunkel wie Windows | Symbol im Infobereich |
 | **An / Aus:** Schalter oben im Fenster, Doppelklick aufs Symbol oder Tastenkürzel | – |
-| **Wetterarten:** Schnee, Regen (spritzt auf), Blüten, Laub (taumelt, bunte Haufen), Sterne (funkeln) | Wetter |
+| **Wetterarten:** Schnee, Regen (spritzt auf), Blüten (Tropfenform, wenden sich), Laub (echte Blattform mit Mittelrippe, dreht und wendet sich, bunt gesprenkelte Haufen), Sterne (vier Strahlen, funkeln). Was auf Fenstern liegt, fällt als das herunter, was es ist; nur Schnee schmilzt | Wetter |
 | **Jahreszeit:** Winter Schnee, Frühling Blüten, Sommer Sterne, Herbst Laub, passend zum Land aus den Windows-Regionseinstellungen (Südhalbkugel umgekehrt) | Wetter → Jahreszeit |
 | **Echtes Wetter vor Ort:** Regen oder Schnee wie draußen, inkl. Stärke und Wind; bei trockenem Wetter die Jahreszeit am Standort (Open-Meteo, Standort auf ~1 km gerundet, alle 30 min) | Wetter → Echtes Wetter vor Ort |
 | **Tastenkürzel frei wählbar:** An/Aus, Wegfegen, Nächstes Wetter; belegte Kürzel werden angezeigt | Mehr → Tastenkürzel |

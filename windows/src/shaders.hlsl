@@ -28,6 +28,7 @@ struct SpriteIn {
     float tintAmount : TINTAMOUNT;
     float3 tintColor : TINTCOLOR;
     float lump : LUMP;
+    float shape : SHAPE;
     uint vid : SV_VertexID;
 };
 
@@ -41,15 +42,16 @@ struct SpriteOut {
     float radius : RADIUS;
     float lump : LUMP;
     float spin : SPIN;
+    float shape : SHAPE;
 };
 
 SpriteOut spriteVertex(SpriteIn s) {
     float pixels = s.size * scale;
     // About a 1/55 s exposure, capped so even the fastest grain stays a short smear and never reads as rain, unless it is rain.
     float2 travel = s.velocity * 0.018;
-    // Rain's long streaks are for the drops only: lumps, snowballs and the snowman's coloured parts keep snow's.
+    // Rain's long streaks are for the drops only; leaves, petals and stars are drawn as they are, without a smear.
     float streakScale = (s.lump > 0.0 || s.tintAmount >= 1.0) ? 1.0 : look.y;
-    float smear = min(length(travel), s.size * (s.lump > 0.0 ? 1.2 : 2.2) * streakScale);
+    float smear = s.shape > 0.5 ? 0.0 : min(length(travel), s.size * (s.lump > 0.0 ? 1.2 : 2.2) * streakScale);
     float2 streak = smear > 0.25 ? normalize(travel) * smear * scale : float2(0.0, 0.0);
     // A lump's ragged edge reaches past its nominal size.
     float reach = s.lump > 0.0 ? 1.3 : 1.0;
@@ -66,7 +68,9 @@ SpriteOut spriteVertex(SpriteIn s) {
     o.soft = s.soft;
     o.tint = float4(s.tintColor, s.tintAmount);
     o.lump = s.lump;
-    o.spin = s.lump > 0.0 ? time * (s.lump - 0.5) * 9.0 + s.lump * 40.0 : 0.0;
+    // Leaves and petals turn slowly as they drift; lumps of snow tumble faster.
+    o.spin = s.lump > 0.0 ? time * (s.lump - 0.5) * (s.shape > 0.5 ? 3.0 : 9.0) + s.lump * 40.0 : 0.0;
+    o.shape = s.shape;
     return o;
 }
 
@@ -78,6 +82,38 @@ float4 spriteFragment(SpriteOut i) : SV_Target {
     float t = span > 0.0 ? clamp(dot(p, half_) / span, -1.0, 1.0) : 0.0;
     float2 d = p - half_ * t;
     float r = length(d) / max(i.radius, 0.001);
+    if (i.shape > 0.5) {
+        // In the sprite's own turning frame, with the shape filling a unit circle.
+        float2 q = d / max(i.radius, 0.001);
+        float cs = cos(i.spin);
+        float sn = sin(i.spin);
+        q = float2(q.x * cs - q.y * sn, q.x * sn + q.y * cs);
+        float cover = 0.0;
+        float3 tone = i.tint.rgb;
+        if (i.shape < 1.5) {
+            // A leaf: a pointed oval with a darker midrib, narrowing as it turns edge-on.
+            float flip = 0.3 + 0.7 * abs(cos(i.spin * 0.7 + i.lump * 13.0));
+            float halfWidth = 0.44 * flip * pow(saturate(1.0 - q.x * q.x), 0.7);
+            cover = (1.0 - smoothstep(-0.05, 0.03, abs(q.y) - halfWidth)) * (1.0 - smoothstep(0.9, 1.0, abs(q.x)));
+            float rib = (1.0 - smoothstep(0.0, 0.06, abs(q.y))) * step(-0.9, q.x);
+            float veins = (1.0 - smoothstep(0.0, 0.05, abs(frac((q.x + abs(q.y) * 0.9) * 3.0) - 0.5) - 0.42)) * 0.12;
+            tone *= (0.78 + 0.32 * (q.x * 0.5 + 0.5)) * (1.0 - 0.3 * rib - veins) * (0.8 + 0.3 * flip);
+        } else if (i.shape < 2.5) {
+            // A petal: a rounded teardrop, paler at its base, cupped as it turns.
+            float flip = 0.45 + 0.55 * abs(cos(i.spin * 0.6 + i.lump * 7.0));
+            float halfWidth = 0.52 * flip * sqrt(saturate(1.0 - q.x * q.x)) * (0.5 + 0.5 * saturate(q.x * 0.5 + 0.6));
+            cover = (1.0 - smoothstep(-0.08, 0.03, abs(q.y) - halfWidth)) * (1.0 - smoothstep(0.88, 1.0, abs(q.x)));
+            tone = lerp(float3(1.0, 0.97, 0.98), tone, saturate(0.45 + 0.55 * (q.x * 0.5 + 0.5))) * (0.88 + 0.12 * flip);
+        } else {
+            // A star: a bright core with four soft rays.
+            float rays = exp(-abs(q.x) * 12.0) * exp(-abs(q.y) * 2.6) + exp(-abs(q.y) * 12.0) * exp(-abs(q.x) * 2.6);
+            cover = saturate(rays + exp(-dot(q, q) * 16.0));
+            tone = lerp(float3(1.0, 1.0, 1.0), tone, 0.45);
+        }
+        float shapeAlpha = cover * i.alpha * look.x;
+        if (shapeAlpha < 0.002) discard;
+        return float4(tone * light.rgb * shapeAlpha, shapeAlpha);
+    }
     float shading = 0.0;
     if (i.lump > 0.0) {
         float angle = atan2(d.y, d.x) + i.spin;
@@ -157,7 +193,12 @@ float4 pileFragment(PileOut i) : SV_Target {
         color = lerp(color, float3(1.0, 1.0, 1.0), twinkle * exp(-depth / 7.0));
     }
 
-    color = lerp(color, color * pileTint.rgb, pileTint.a);
+    // Leaves and petals lie as a mottled heap of slightly different colours, not one flat one.
+    float2 cell = floor(i.position.xy / (3.0 * scale));
+    float speckle = hash(cell + 3.1);
+    float3 varied = pileTint.rgb * (0.72 + 0.56 * speckle);
+    varied = lerp(varied, varied.gbr, 0.18 * hash(cell + 17.0));
+    color = lerp(color, color * varied * 1.1, pileTint.a);
     color *= light.rgb;
     coverage *= look.x;
     return float4(color * coverage, coverage);

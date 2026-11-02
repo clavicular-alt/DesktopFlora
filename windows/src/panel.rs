@@ -750,7 +750,8 @@ impl Painter<'_> {
         let rows = [
             ("Open at Login", view.login, true, Action::OpenAtLogin),
             ("Accumulate", settings.accumulate, settles, Action::Accumulate),
-            ("Melt Snow", settings.melt, settles && settings.accumulate, Action::Melt),
+            // Only snow melts; leaves and petals stay.
+            ("Melt Snow", settings.melt, view.weather == Weather::Snow && settings.accumulate, Action::Melt),
             ("Snow on Windows", settings.snow_on_windows, !settings.behind_windows, Action::SnowOnWindows),
             ("Behind Windows", settings.behind_windows, true, Action::BehindWindows),
             ("Show in Screenshots", settings.show_in_screenshots, true, Action::Screenshots),
